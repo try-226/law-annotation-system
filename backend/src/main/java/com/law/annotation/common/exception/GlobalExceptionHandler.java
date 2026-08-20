@@ -13,9 +13,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 @RestControllerAdvice
@@ -86,6 +88,26 @@ public class GlobalExceptionHandler {
                 MALFORMED_REQUEST,
                 "请求内容格式错误",
                 List.of());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentTypeMismatch(
+            MethodArgumentTypeMismatchException exception) {
+        return errorResponse(
+                HttpStatus.BAD_REQUEST,
+                VALIDATION_FAILED,
+                "请求参数校验失败",
+                List.of(new ErrorLocator(exception.getName(), "参数值无效")));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestParameter(
+            MissingServletRequestParameterException exception) {
+        return errorResponse(
+                HttpStatus.BAD_REQUEST,
+                VALIDATION_FAILED,
+                "请求参数校验失败",
+                List.of(new ErrorLocator(exception.getParameterName(), "参数不能为空")));
     }
 
     @ExceptionHandler(ApiException.class)
