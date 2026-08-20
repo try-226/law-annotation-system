@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: law-annotation-system
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+      auto-index-creation: false
+
+server:
+  port: ${SERVER_PORT:8080}
