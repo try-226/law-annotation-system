@@ -1,0 +1,46 @@
+.law-page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+.page-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.page-title h1 { margin: 0 0 6px; font-size: 26px; }
+.muted { margin: 0; color: #6b7280; }
+.card { margin-bottom: 20px; padding: 22px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; box-shadow: 0 2px 8px rgb(15 23 42 / 4%); }
+.card h2 { margin: 0 0 18px; font-size: 19px; }
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.toolbar input { flex: 1; }
+.field { display: grid; gap: 7px; }
+.field > span { color: #475569; font-size: 14px; font-weight: 600; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+input, textarea, select { width: 100%; border: 1px solid #cbd5e1; border-radius: 7px; padding: 10px 12px; color: #1f2937; background: #fff; }
+textarea { resize: vertical; line-height: 1.65; }
+input:focus, textarea:focus, select:focus { outline: 2px solid #bfdbfe; border-color: #3b82f6; }
+button, .button { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 7px; padding: 10px 16px; background: #1d4f91; color: #fff; cursor: pointer; text-decoration: none; }
+button:hover, .button:hover { background: #173f70; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.secondary { background: #e8eef7; color: #21436b; }
+.secondary:hover { background: #dbe7f5; }
+.danger { background: #b42318; }
+.danger:hover { background: #912018; }
+.small { padding: 7px 11px; font-size: 13px; }
+.error, .notice { margin: 12px 0; padding: 11px 13px; border-radius: 7px; }
+.error { background: #fef2f2; color: #b42318; }
+.notice { background: #fffbeb; color: #92400e; }
+.success { color: #137333; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid #e5e7eb; padding: 13px 10px; text-align: left; vertical-align: top; }
+th { color: #64748b; font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; }
+.row-card { margin-top: 12px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.row-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.row-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.full { grid-column: 1 / -1; }
+.section-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.empty { padding: 36px; text-align: center; color: #64748b; }
+.badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e8eef7; color: #21436b; font-size: 12px; }
+.issue-list { margin: 0; padding-left: 20px; color: #9a3412; }
+@media (max-width: 760px) {
+  .law-page { padding: 22px 14px 48px; }
+  .page-title, .toolbar { align-items: stretch; flex-direction: column; }
+  .form-grid, .row-grid { grid-template-columns: 1fr; }
+  .full { grid-column: auto; }
+  table { display: block; overflow-x: auto; }
+}

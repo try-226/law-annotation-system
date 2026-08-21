@@ -6,9 +6,7 @@ import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -59,7 +57,9 @@ public class LawCreationService {
                             article.articleId(), article.number(), article.body(), article.order());
                 })
                 .toList();
-        validateStructureReferences(structure, articleSnapshots);
+        List<LawStructureNode> validStructure = LawStructureValidator.validate(
+                structure,
+                articleSnapshots.stream().map(ArticleSnapshot::getArticleId).toList());
         Instant now = Instant.now();
         String lawId = UUID.randomUUID().toString();
         String contentVersionId = UUID.randomUUID().toString();
@@ -76,7 +76,7 @@ public class LawCreationService {
                 issuingAuthority,
                 publicationDate,
                 validityStatus,
-                structure,
+                validStructure,
                 contentVersionId,
                 now);
 
@@ -91,26 +91,6 @@ public class LawCreationService {
             throw exception;
         }
         return new InitialLawCreation(law, contentVersion);
-    }
-
-    private static void validateStructureReferences(
-            List<LawStructureNode> structure,
-            List<ArticleSnapshot> articles) {
-        if (structure == null) {
-            return;
-        }
-        Set<String> articleIds = new HashSet<>();
-        for (ArticleSnapshot article : articles) {
-            articleIds.add(article.getArticleId());
-        }
-        for (LawStructureNode node : structure) {
-            if (node == null) {
-                throw new IllegalArgumentException("structure不能包含null");
-            }
-            if (!articleIds.containsAll(node.getArticleIds())) {
-                throw new IllegalArgumentException("结构节点引用了当前C1中不存在的articleId");
-            }
-        }
     }
 
     private void compensateContentVersion(String contentVersionId, RuntimeException originalFailure) {

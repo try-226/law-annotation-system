@@ -1,6 +1,7 @@
 package com.law.annotation;
 
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
+import com.law.annotation.law.LawAuditRepository;
 import com.law.annotation.law.LawDomainIndexInitializer;
 import com.law.annotation.law.LawRepository;
 import com.law.annotation.user.UserIndexInitializer;
@@ -31,6 +32,9 @@ class LawAnnotationApplicationTests {
 
     @MockitoBean
     private LawRepository lawRepository;
+
+    @MockitoBean
+    private LawAuditRepository lawAuditRepository;
 
     @MockitoBean
     private ContentVersionRepository contentVersionRepository;
