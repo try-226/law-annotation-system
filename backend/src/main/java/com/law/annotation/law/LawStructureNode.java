@@ -24,10 +24,7 @@ public class LawStructureNode {
             throw new IllegalArgumentException("结构节点类型不能为空");
         }
         this.type = type;
-        if (title == null || title.isBlank()) {
-            throw new IllegalArgumentException("结构节点标题不能为空");
-        }
-        this.title = title;
+        this.title = LawDomainRules.validateStructureTitle(title);
         this.parentNodeId = parentNodeId;
         if (order < 0) {
             throw new IllegalArgumentException("结构节点顺序不能小于0");

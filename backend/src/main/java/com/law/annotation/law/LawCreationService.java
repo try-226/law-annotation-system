@@ -46,8 +46,8 @@ public class LawCreationService {
         if (lawRepository.existsByNormalizedName(normalizedName)) {
             throw nameConflict();
         }
-        if (articles == null) {
-            throw new IllegalArgumentException("articles不能为空");
+        if (articles == null || articles.isEmpty()) {
+            throw new IllegalArgumentException("首次创建法律至少需要一条法条");
         }
 
         List<ArticleSnapshot> articleSnapshots = articles.stream()

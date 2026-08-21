@@ -49,6 +49,18 @@ public final class LawDomainRules {
         return trimmed;
     }
 
+    public static String validateStructureTitle(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("结构节点标题不能为空");
+        }
+        String trimmed = value.trim();
+        int length = trimmed.codePointCount(0, trimmed.length());
+        if (length < 1 || length > 100) {
+            throw new IllegalArgumentException("结构节点标题须为1至100个字符");
+        }
+        return trimmed;
+    }
+
     public static LocalDate requirePublicationDate(LocalDate value) {
         if (value == null) {
             throw new IllegalArgumentException("公布日期不能为空");
