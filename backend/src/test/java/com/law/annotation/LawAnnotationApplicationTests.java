@@ -1,8 +1,11 @@
 package com.law.annotation;
 
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
+import com.law.annotation.law.LawDomainIndexInitializer;
+import com.law.annotation.law.LawRepository;
 import com.law.annotation.user.UserIndexInitializer;
 import com.law.annotation.user.UserRepository;
+import com.law.annotation.version.ContentVersionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration;
@@ -27,10 +30,19 @@ class LawAnnotationApplicationTests {
     private UserRepository userRepository;
 
     @MockitoBean
+    private LawRepository lawRepository;
+
+    @MockitoBean
+    private ContentVersionRepository contentVersionRepository;
+
+    @MockitoBean
     private MongoTemplate mongoTemplate;
 
     @MockitoBean
     private UserIndexInitializer userIndexInitializer;
+
+    @MockitoBean
+    private LawDomainIndexInitializer lawDomainIndexInitializer;
 
     @MockitoBean
     private BootstrapAdminRunner bootstrapAdminRunner;
