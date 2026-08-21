@@ -98,7 +98,7 @@ npm install
 npm run dev
 ```
 
-开发服务器默认访问地址为 `http://localhost:5173`。`frontend/.env.example` 提供 `VITE_API_BASE_URL` 示例；未创建本地环境文件时，前端 API 地址默认使用 `http://localhost:8080`。
+开发服务器默认访问地址为 `http://localhost:5173`。前端 API 地址默认使用 `/api`；本地开发时，Vite 会将 `/api/*` 请求去除 `/api` 前缀后代理到 `http://localhost:8080`，例如 `/api/auth/login` 会转发到 `http://localhost:8080/auth/login`。生产或 Docker 环境同样统一请求 `/api/*`，由部署层反向代理到后端。`VITE_API_BASE_URL` 仅用于特殊部署场景覆盖默认地址。
 
 ## 构建、测试与启动后端
 
@@ -122,7 +122,7 @@ cd backend
 
 ## 认证与用户管理
 
-PR03 使用 Spring Security 服务端 Session，不使用 JWT、Refresh Token 或第三方登录。浏览器先请求 `GET /auth/csrf`，保存返回的 Session Cookie，并在后续 `POST`、`PATCH`、`DELETE` 请求中通过返回的 `headerName` 携带 CSRF Token。PR05 前端需要为跨端口本地开发请求启用 Cookie 凭据。
+PR03 使用 Spring Security 服务端 Session，不使用 JWT、Refresh Token 或第三方登录。浏览器先请求 `GET /auth/csrf`，保存返回的 Session Cookie，并在后续 `POST`、`PATCH`、`DELETE` 请求中通过返回的 `headerName` 携带 CSRF Token。前端 Axios 公共实例已启用 Cookie 凭据。
 
 认证接口包括登录、退出、当前用户、修改姓名和修改密码；`/users/**` 仅允许 `ADMIN` 访问，提供分页查询、创建、改名、重置密码、启停和有限删除。登录账号通过 `normalizedAccount` 实现大小写不敏感唯一，密码只保存 BCrypt 哈希。
 
