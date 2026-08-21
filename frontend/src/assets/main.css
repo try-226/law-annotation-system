@@ -1,0 +1,72 @@
+:root {
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: #202b3c;
+  background: #f4f6f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
+body { min-height: 100vh; }
+button, input, select { font: inherit; }
+button { border-radius: 6px; }
+a { color: inherit; text-decoration: none; }
+
+.page-heading { margin: 0 0 20px; }
+.page-heading h1 { margin: 0 0 6px; font-size: 24px; font-weight: 650; }
+.page-heading p { margin: 0; color: #778194; font-size: 14px; }
+.panel { border: 1px solid #e2e7ee; border-radius: 9px; background: #fff; box-shadow: 0 2px 8px rgb(15 23 42 / 3%); }
+.form-grid { display: grid; gap: 18px; }
+.form-field { display: grid; gap: 7px; }
+.form-field label { color: #344054; font-size: 14px; font-weight: 600; }
+.required { color: #d64545; }
+.input, .select {
+  width: 100%;
+  height: 40px;
+  border: 1px solid #cfd6df;
+  border-radius: 6px;
+  outline: none;
+  background: #fff;
+  color: #263244;
+  padding: 0 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.input:focus, .select:focus { border-color: #3b78d2; box-shadow: 0 0 0 3px rgb(59 120 210 / 12%); }
+.input:disabled { background: #f4f6f8; color: #667085; }
+.field-error { margin: 0; color: #c93636; font-size: 13px; }
+.form-note { margin: 0; color: #7a8495; font-size: 13px; }
+.button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #cfd6df;
+  background: #fff;
+  color: #344054;
+  padding: 0 16px;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) { background: #f7f9fb; }
+.button:disabled { cursor: not-allowed; opacity: .55; }
+.button--primary { border-color: #2868c7; background: #2868c7; color: #fff; }
+.button--primary:hover:not(:disabled) { background: #205bad; }
+.button--danger { border-color: #d84b4b; color: #c93636; }
+.button--danger:hover:not(:disabled) { background: #fff3f3; }
+.button--text { min-height: 30px; border: 0; background: transparent; color: #2868c7; padding: 0 5px; }
+.button--text:hover:not(:disabled) { background: #edf4ff; }
+.button--text-danger { color: #c93636; }
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 720px) {
+  .page-heading h1 { font-size: 21px; }
+}
