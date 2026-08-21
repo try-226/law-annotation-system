@@ -86,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers("/auth/logout", "/auth/me", "/auth/me/**").authenticated()
                         .requestMatchers("/users", "/users/**").hasRole("ADMIN")
+                        .requestMatchers("/laws", "/laws/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(activeUserFilter, SecurityContextHolderFilter.class)
                 .sessionManagement(Customizer.withDefaults());

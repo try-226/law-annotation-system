@@ -43,6 +43,42 @@ public class PendingChangeSet {
                 && deletedArticleIds.isEmpty();
     }
 
+    public PendingChangeSet recordAddition(String articleId) {
+        String validId = LawDomainRules.requireIdentifier(articleId, "articleId");
+        Set<String> added = new HashSet<>(addedArticleIds);
+        Set<String> modified = new HashSet<>(modifiedArticleIds);
+        Set<String> deleted = new HashSet<>(deletedArticleIds);
+        deleted.remove(validId);
+        modified.remove(validId);
+        added.add(validId);
+        return new PendingChangeSet(added, modified, deleted);
+    }
+
+    public PendingChangeSet recordModification(String articleId) {
+        String validId = LawDomainRules.requireIdentifier(articleId, "articleId");
+        if (addedArticleIds.contains(validId)) {
+            return this;
+        }
+        Set<String> modified = new HashSet<>(modifiedArticleIds);
+        modified.add(validId);
+        return new PendingChangeSet(addedArticleIds, modified, deletedArticleIds);
+    }
+
+    public PendingChangeSet recordDeletion(String articleId) {
+        String validId = LawDomainRules.requireIdentifier(articleId, "articleId");
+        Set<String> added = new HashSet<>(addedArticleIds);
+        Set<String> modified = new HashSet<>(modifiedArticleIds);
+        Set<String> deleted = new HashSet<>(deletedArticleIds);
+        if (added.remove(validId)) {
+            modified.remove(validId);
+            deleted.remove(validId);
+        } else {
+            modified.remove(validId);
+            deleted.add(validId);
+        }
+        return new PendingChangeSet(added, modified, deleted);
+    }
+
     private static Set<String> immutableIdentifiers(Set<String> values, String fieldName) {
         if (values == null) {
             return Set.of();

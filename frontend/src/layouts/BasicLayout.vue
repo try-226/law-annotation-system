@@ -37,14 +37,19 @@ async function handleLogout(): Promise<void> {
         <span class="brand-mark">法</span>
         <div><strong>法律条文标注系统</strong><small>LAW ANNOTATION</small></div>
       </div>
-      <nav class="nav" aria-label="账户导航">
+      <nav class="nav" aria-label="系统导航">
         <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'users' }" class="nav-item">
           <span>▦</span>用户管理
+        </RouterLink>
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-list' }" class="nav-item">
+          <span>§</span>法律管理
+        </RouterLink>
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-import' }" class="nav-item">
+          <span>＋</span>导入法律
         </RouterLink>
         <RouterLink :to="{ name: 'profile' }" class="nav-item"><span>○</span>个人信息</RouterLink>
         <RouterLink :to="{ name: 'change-password' }" class="nav-item"><span>⌁</span>修改密码</RouterLink>
       </nav>
-      <p class="scope-note">当前仅开放账户模块</p>
     </aside>
 
     <div class="shell-main">
@@ -75,6 +80,7 @@ async function handleLogout(): Promise<void> {
   display: flex;
   min-height: 100vh;
   background: #f4f6f9;
+  color: #1f2937;
 }
 
 .sidebar {
@@ -96,7 +102,6 @@ async function handleLogout(): Promise<void> {
 .nav-item { display: flex; height: 44px; align-items: center; gap: 11px; border-radius: 6px; color: #c6d0df; padding: 0 14px; font-size: 14px; }
 .nav-item:hover, .nav-item.router-link-active { background: #2868c7; color: #fff; }
 .nav-item span { width: 18px; text-align: center; }
-.scope-note { margin: auto 18px 20px; color: #8393aa; font-size: 12px; text-align: center; }
 .shell-main { min-width: 0; flex: 1; margin-left: 232px; }
 .topbar { position: sticky; z-index: 10; top: 0; display: flex; height: 72px; align-items: center; justify-content: space-between; border-bottom: 1px solid #e1e6ed; background: #fff; padding: 0 28px; }
 .breadcrumb { color: #788395; font-size: 14px; }
@@ -119,7 +124,6 @@ async function handleLogout(): Promise<void> {
   .brand div, .nav-item:not(.router-link-active) { font-size: 0; }
   .nav-item { justify-content: center; padding: 0; font-size: 0; }
   .nav-item span { font-size: 16px; }
-  .scope-note { display: none; }
   .shell-main { margin-left: 72px; }
   .content { padding: 20px 16px; }
   .topbar { padding: 0 16px; }

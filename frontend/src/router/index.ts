@@ -1,8 +1,11 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import type { Role } from '../api/types'
 import BasicLayout from '../layouts/BasicLayout.vue'
 import { authState, restoreSession } from '../state/auth'
-import type { Role } from '../api/types'
+import LawDetailView from '../views/law/LawDetailView.vue'
+import LawImportView from '../views/law/LawImportView.vue'
+import LawListView from '../views/law/LawListView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -52,6 +55,24 @@ const routes: RouteRecordRaw[] = [
         name: 'change-password',
         component: () => import('../views/ChangePasswordView.vue'),
         meta: { title: '修改密码' },
+      },
+      {
+        path: 'laws',
+        name: 'law-list',
+        component: LawListView,
+        meta: { roles: ['ADMIN'], title: '法律管理' },
+      },
+      {
+        path: 'laws/import',
+        name: 'law-import',
+        component: LawImportView,
+        meta: { roles: ['ADMIN'], title: '导入法律' },
+      },
+      {
+        path: 'laws/:lawId',
+        name: 'law-detail',
+        component: LawDetailView,
+        meta: { roles: ['ADMIN'], title: '法律详情' },
       },
     ],
   },
