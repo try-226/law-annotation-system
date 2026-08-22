@@ -87,6 +87,7 @@ public class SecurityConfig {
                         .requestMatchers("/auth/logout", "/auth/me", "/auth/me/**").authenticated()
                         .requestMatchers("/users", "/users/**").hasRole("ADMIN")
                         .requestMatchers("/laws", "/laws/**").hasRole("ADMIN")
+                        .requestMatchers("/field-definitions", "/field-definitions/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(activeUserFilter, SecurityContextHolderFilter.class)
                 .sessionManagement(Customizer.withDefaults());
@@ -102,7 +103,7 @@ public class SecurityConfig {
                 .toList();
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(origins);
-        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, "X-CSRF-TOKEN"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

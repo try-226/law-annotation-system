@@ -74,6 +74,12 @@ const routes: RouteRecordRaw[] = [
         component: LawDetailView,
         meta: { roles: ['ADMIN'], title: '法律详情' },
       },
+      {
+        path: 'field-config',
+        name: 'field-config',
+        component: () => import('../views/field/FieldConfigView.vue'),
+        meta: { roles: ['ADMIN'], title: '字段配置' },
+      },
     ],
   },
   {
