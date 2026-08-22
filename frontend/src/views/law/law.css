@@ -4,6 +4,16 @@
 .muted { margin: 0; color: #6b7280; }
 .card { margin-bottom: 20px; padding: 22px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; box-shadow: 0 2px 8px rgb(15 23 42 / 4%); }
 .card h2 { margin: 0 0 18px; font-size: 19px; }
+.field-config-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.field-config-heading h2 { margin-bottom: 6px; }
+.config-note { padding: 5px 10px; border-radius: 999px; background: #eff6ff; color: #1d4f91; font-size: 12px; white-space: nowrap; }
+.field-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.config-section { min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+.config-section h3 { margin: 0 0 12px; color: #334155; font-size: 16px; }
+.config-section th, .config-section td { padding: 11px 8px; vertical-align: middle; }
+.core-required { color: #1d4f91; font-size: 13px; font-weight: 600; }
+.required-toggle { display: inline-flex; align-items: center; gap: 8px; color: #334155; font-size: 13px; cursor: pointer; }
+.required-toggle input { width: auto; margin: 0; accent-color: #1d4f91; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .toolbar input { flex: 1; }
 .field { display: grid; gap: 7px; }
@@ -40,7 +50,9 @@ th { color: #64748b; font-size: 13px; }
 @media (max-width: 760px) {
   .law-page { padding: 22px 14px 48px; }
   .page-title, .toolbar { align-items: stretch; flex-direction: column; }
-  .form-grid, .row-grid { grid-template-columns: 1fr; }
+  .field-config-heading { align-items: stretch; flex-direction: column; }
+  .config-note { align-self: flex-start; }
+  .field-config-grid, .form-grid, .row-grid { grid-template-columns: 1fr; }
   .full { grid-column: auto; }
   table { display: block; overflow-x: auto; }
 }
