@@ -64,12 +64,12 @@ class FieldConfigControllerTests {
     private MongoUserDetailsService mongoUserDetailsService;
 
     @Test
-    void getReturnsNineFieldsInFixedOrderForAnnotator() throws Exception {
-        UserDocument annotator = activeUser("annotator", Role.ANNOTATOR);
-        when(userRepository.findById("annotator")).thenReturn(Optional.of(annotator));
-        when(fieldConfigService.getCurrentConfig()).thenReturn(currentConfig());
+    void adminGetsNineFieldsInFixedOrder() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        when(fieldConfigService.getCurrentConfig(Role.ADMIN)).thenReturn(currentConfig());
 
-        mockMvc.perform(get("/field-config").with(user(UserPrincipal.from(annotator))))
+        mockMvc.perform(get("/field-config").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.fields.length()").value(9))
                 .andExpect(jsonPath("$.data.fields[0].fieldKey").value("lawCategory"))
@@ -78,6 +78,20 @@ class FieldConfigControllerTests {
                 .andExpect(jsonPath("$.data.fields[3].fieldKey").value("overallNote"))
                 .andExpect(jsonPath("$.data.fields[4].fieldKey").value("itemType"))
                 .andExpect(jsonPath("$.data.fields[8].fieldKey").value("annotationNote"));
+
+        verify(fieldConfigService).getCurrentConfig(Role.ADMIN);
+    }
+
+    @Test
+    void annotatorCannotReadCurrentConfiguration() throws Exception {
+        UserDocument annotator = activeUser("annotator", Role.ANNOTATOR);
+        when(userRepository.findById("annotator")).thenReturn(Optional.of(annotator));
+
+        mockMvc.perform(get("/field-config").with(user(UserPrincipal.from(annotator))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("AUTH.FORBIDDEN"));
+
+        verifyNoInteractions(fieldConfigService);
     }
 
     @Test

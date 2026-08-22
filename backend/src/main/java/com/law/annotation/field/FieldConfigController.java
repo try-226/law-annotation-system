@@ -26,9 +26,10 @@ public class FieldConfigController {
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
-    public ApiResponse<FieldConfigResponse> getCurrentConfig() {
-        return ApiResponse.success(fieldConfigService.getCurrentConfig());
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<FieldConfigResponse> getCurrentConfig(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.success(fieldConfigService.getCurrentConfig(principal.role()));
     }
 
     @PatchMapping

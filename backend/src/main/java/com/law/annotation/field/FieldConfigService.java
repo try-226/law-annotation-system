@@ -51,7 +51,12 @@ public class FieldConfigService {
         }
     }
 
-    public FieldConfigResponse getCurrentConfig() {
+    public FieldConfigResponse getCurrentConfig(Role actorRole) {
+        requireAdmin(actorRole);
+        return buildCurrentConfig();
+    }
+
+    private FieldConfigResponse buildCurrentConfig() {
         Map<String, Boolean> requiredByKey = currentRequiredByKey();
         List<FieldConfigItemResponse> fields = FIXED_FIELDS.stream()
                 .map(field -> new FieldConfigItemResponse(
@@ -98,7 +103,7 @@ public class FieldConfigService {
             document.updateRequired(required, validUpdatedBy, Instant.now());
             fieldConfigRepository.save(document);
         }
-        return getCurrentConfig();
+        return buildCurrentConfig();
     }
 
     public FieldConfigSnapshot getCurrentSnapshot() {

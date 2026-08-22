@@ -49,7 +49,7 @@ class FieldConfigServiceTests {
 
     @Test
     void initializesNineFixedFieldsWithV15DefaultsAndOrder() {
-        List<FieldConfigItemResponse> fields = service.getCurrentConfig().fields();
+        List<FieldConfigItemResponse> fields = service.getCurrentConfig(Role.ADMIN).fields();
 
         assertThat(documents).hasSize(9);
         assertThat(fields)
@@ -73,6 +73,14 @@ class FieldConfigServiceTests {
         assertThat(required("subjects")).isFalse();
         assertThat(required("legalLiability")).isFalse();
         assertThat(required("annotationNote")).isFalse();
+        assertThat(fields)
+                .filteredOn(field -> List.of(
+                                "lawCategory", "overallKeywords", "itemType", "keywords")
+                        .contains(field.fieldKey()))
+                .allSatisfy(field -> {
+                    assertThat(field.required()).isTrue();
+                    assertThat(field.configurable()).isFalse();
+                });
     }
 
     @ParameterizedTest
@@ -84,17 +92,15 @@ class FieldConfigServiceTests {
                 .isEqualTo(FieldConfigErrorCodes.CORE_REQUIRED_IMMUTABLE);
     }
 
-    @Test
-    void updatesSummaryAndSubjectsRequiredFlags() {
-        service.getCurrentConfig();
+    @ParameterizedTest
+    @ValueSource(strings = {"summary", "overallNote", "subjects", "legalLiability", "annotationNote"})
+    void updatesEveryConfigurableRequiredFlag(String fieldKey) {
+        service.getCurrentConfig(Role.ADMIN);
 
-        service.updateRequired("summary", true, "admin", Role.ADMIN);
-        service.updateRequired("subjects", true, "admin", Role.ADMIN);
+        service.updateRequired(fieldKey, true, "admin", Role.ADMIN);
 
-        assertThat(required("summary")).isTrue();
-        assertThat(required("subjects")).isTrue();
-        assertThat(documents.get("summary").getUpdatedBy()).isEqualTo("admin");
-        assertThat(documents.get("subjects").getUpdatedBy()).isEqualTo("admin");
+        assertThat(required(fieldKey)).isTrue();
+        assertThat(documents.get(fieldKey).getUpdatedBy()).isEqualTo("admin");
     }
 
     @Test
@@ -108,6 +114,15 @@ class FieldConfigServiceTests {
     @Test
     void serviceRejectsAnnotatorBeforeAccessingPersistence() {
         assertThatThrownBy(() -> service.updateRequired("summary", true, "annotator", Role.ANNOTATOR))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(AuthErrorCodes.FORBIDDEN);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void serviceRejectsAnnotatorReadingCurrentConfigurationBeforeAccessingPersistence() {
+        assertThatThrownBy(() -> service.getCurrentConfig(Role.ANNOTATOR))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(AuthErrorCodes.FORBIDDEN);
