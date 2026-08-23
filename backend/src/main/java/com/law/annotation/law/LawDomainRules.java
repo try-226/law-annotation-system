@@ -21,8 +21,7 @@ public final class LawDomainRules {
         if (value == null) {
             throw new IllegalArgumentException("法律名称不能为空");
         }
-        boolean containsControl = value.codePoints().anyMatch(Character::isISOControl);
-        if (containsControl) {
+        if (containsControlCharacter(value)) {
             throw new IllegalArgumentException("法律名称不得包含换行或控制字符");
         }
         String trimmed = value.trim();
@@ -41,6 +40,9 @@ public final class LawDomainRules {
         if (value == null) {
             throw new IllegalArgumentException("制定机关不能为空");
         }
+        if (containsControlCharacter(value)) {
+            throw new IllegalArgumentException("制定机关不得包含控制字符");
+        }
         String trimmed = value.trim();
         int length = trimmed.codePointCount(0, trimmed.length());
         if (length < 1 || length > 100) {
@@ -52,6 +54,9 @@ public final class LawDomainRules {
     public static String validateStructureTitle(String value) {
         if (value == null) {
             throw new IllegalArgumentException("结构节点标题不能为空");
+        }
+        if (containsControlCharacter(value)) {
+            throw new IllegalArgumentException("结构节点标题不得包含控制字符");
         }
         String trimmed = value.trim();
         int length = trimmed.codePointCount(0, trimmed.length());
@@ -104,5 +109,9 @@ public final class LawDomainRules {
             throw new IllegalArgumentException(fieldName + "不能为空");
         }
         return value;
+    }
+
+    private static boolean containsControlCharacter(String value) {
+        return value.codePoints().anyMatch(Character::isISOControl);
     }
 }

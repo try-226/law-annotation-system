@@ -44,6 +44,15 @@ class LawDomainRulesTests {
     }
 
     @Test
+    void trimsIssuingAuthorityAndRejectsControlCharacters() {
+        assertThat(LawDomainRules.validateIssuingAuthority("  最高人民法院  "))
+                .isEqualTo("最高人民法院");
+        assertThatThrownBy(() -> LawDomainRules.validateIssuingAuthority("最高人民法院" + '\0'))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("控制字符");
+    }
+
+    @Test
     void rejectsDuplicateNumberInsideOneSemanticSnapshot() {
         ArticleSnapshot first = ArticleSnapshot.createNew("第一条", "正文一", 0);
         ArticleSnapshot duplicate = ArticleSnapshot.createNew("第一条", "正文二", 1);

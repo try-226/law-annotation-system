@@ -224,6 +224,9 @@ public class LawMaintenanceService {
         } catch (IllegalArgumentException exception) {
             throw validation("article", exception.getMessage());
         }
+        if (semanticArticlesEqual(current.getSemanticArticlesSnapshot(), articles)) {
+            return lawQueryService.getDetail(lawId);
+        }
         return appendSemanticVersion(
                 law,
                 current,
@@ -385,6 +388,31 @@ public class LawMaintenanceService {
                 "validation-only",
                 Instant.EPOCH);
         return sorted;
+    }
+
+    private static boolean semanticArticlesEqual(
+            List<ArticleSnapshot> current,
+            List<ArticleSnapshot> updated) {
+        if (current.size() != updated.size()) {
+            return false;
+        }
+        List<ArticleSnapshot> sortedCurrent = current.stream()
+                .sorted(Comparator.comparingInt(ArticleSnapshot::getOrder))
+                .toList();
+        List<ArticleSnapshot> sortedUpdated = updated.stream()
+                .sorted(Comparator.comparingInt(ArticleSnapshot::getOrder))
+                .toList();
+        for (int index = 0; index < sortedCurrent.size(); index++) {
+            ArticleSnapshot currentArticle = sortedCurrent.get(index);
+            ArticleSnapshot updatedArticle = sortedUpdated.get(index);
+            if (!currentArticle.getArticleId().equals(updatedArticle.getArticleId())
+                    || !currentArticle.getNumber().equals(updatedArticle.getNumber())
+                    || !currentArticle.getBody().equals(updatedArticle.getBody())
+                    || currentArticle.getOrder() != updatedArticle.getOrder()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Query currentLawQuery(LawDocument law) {
