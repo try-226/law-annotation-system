@@ -83,8 +83,7 @@ public class TaskController {
             @PathVariable String taskId,
             @Valid @RequestBody CancelTaskRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
-        requireRole(principal, Role.ADMIN);
-        return ApiResponse.success(taskService.cancel(taskId, request.reason(), principal.id()));
+        return ApiResponse.success(taskService.cancel(taskId, request.reason(), principal));
     }
 
     private static void requireRole(UserPrincipal principal, Role expectedRole) {

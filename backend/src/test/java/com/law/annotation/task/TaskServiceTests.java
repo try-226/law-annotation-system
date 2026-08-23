@@ -257,33 +257,47 @@ class TaskServiceTests {
     @Test
     void pendingAndAnnotatingTasksCanBeCanceledWithTrimmedReason() {
         TaskDocument canceled = task(TaskState.CANCELED, "管理员取消");
+        UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
         when(mongoTemplate.findAndModify(any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(TaskDocument.class)))
                 .thenReturn(canceled);
 
-        TaskDetailResponse response = service.cancel("task-1", "  管理员取消  ", "admin-1");
+        TaskDetailResponse response = service.cancel("task-1", "  管理员取消  ", admin);
 
         assertThat(response.taskState()).isEqualTo(TaskState.CANCELED);
         assertThat(response.cancelReason()).isEqualTo("管理员取消");
     }
 
     @Test
+    void annotatorCannotCancelTask() {
+        UserPrincipal annotator = UserPrincipal.from(user("annotator-1", Role.ANNOTATOR, true));
+
+        assertCode(
+                () -> service.cancel("task-1", "取消原因", annotator),
+                "AUTH.FORBIDDEN");
+        verify(mongoTemplate, never()).findAndModify(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+    }
+
+    @Test
     void pendingReviewAndLaterStatesCannotBeCanceled() {
+        UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
         when(taskRepository.findById("task-1"))
                 .thenReturn(Optional.of(task(TaskState.PENDING_REVIEW, null)));
 
         assertCode(
-                () -> service.cancel("task-1", "不再处理", "admin-1"),
+                () -> service.cancel("task-1", "不再处理", admin),
                 TaskErrorCodes.INVALID_STATE_TRANSITION);
     }
 
     @Test
     void cancelReasonMustBeOneToFiveHundredCharactersAfterTrim() {
+        UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
         assertCode(
-                () -> service.cancel("task-1", "   ", "admin-1"),
+                () -> service.cancel("task-1", "   ", admin),
                 "COMMON.VALIDATION_FAILED");
         assertCode(
-                () -> service.cancel("task-1", "x".repeat(501), "admin-1"),
+                () -> service.cancel("task-1", "x".repeat(501), admin),
                 "COMMON.VALIDATION_FAILED");
         verify(mongoTemplate, never()).findAndModify(any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(TaskDocument.class));

@@ -134,17 +134,38 @@ class TaskControllerTests {
     @Test
     void adminCancelsTaskWithReason() throws Exception {
         UserDocument admin = activeUser("admin-1", Role.ADMIN);
+        UserPrincipal principal = UserPrincipal.from(admin);
         when(userRepository.findById("admin-1")).thenReturn(Optional.of(admin));
-        when(taskService.cancel("task-1", "取消原因", "admin-1"))
+        when(taskService.cancel("task-1", "取消原因", principal))
                 .thenReturn(detail(TaskState.CANCELED));
 
         mockMvc.perform(post("/tasks/task-1/cancel")
-                        .with(user(UserPrincipal.from(admin)))
+                        .with(user(principal))
                         .with(csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"取消原因\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.taskState").value("CANCELED"));
+    }
+
+    @Test
+    void annotatorCannotCancelTask() throws Exception {
+        UserDocument annotator = activeUser("annotator-1", Role.ANNOTATOR);
+        UserPrincipal principal = UserPrincipal.from(annotator);
+        when(userRepository.findById("annotator-1")).thenReturn(Optional.of(annotator));
+        when(taskService.cancel("task-1", "取消原因", principal))
+                .thenThrow(new com.law.annotation.common.exception.ApiException(
+                        org.springframework.http.HttpStatus.FORBIDDEN,
+                        "AUTH.FORBIDDEN",
+                        "无权执行此操作"));
+
+        mockMvc.perform(post("/tasks/task-1/cancel")
+                        .with(user(principal))
+                        .with(csrf().asHeader())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"取消原因\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("AUTH.FORBIDDEN"));
     }
 
     @Test

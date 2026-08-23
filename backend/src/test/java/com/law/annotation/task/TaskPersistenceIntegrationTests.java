@@ -203,7 +203,7 @@ class TaskPersistenceIntegrationTests {
                 TaskErrorCodes.INVALID_STATE_TRANSITION);
 
         TaskDetailResponse canceled = taskService.cancel(
-                created.taskId(), "  业务调整  ", "admin-1");
+                created.taskId(), "  业务调整  ", principal("admin-1", Role.ADMIN));
         assertThat(canceled.taskState()).isEqualTo(TaskState.CANCELED);
         assertThat(canceled.cancelReason()).isEqualTo("业务调整");
         assertThat(canceled.canceledBy()).isEqualTo("admin-1");
@@ -217,7 +217,7 @@ class TaskPersistenceIntegrationTests {
         insertEligibleLawAndAnnotator();
         TaskDetailResponse first = taskService.createOrdinaryTask(
                 "law-1", "annotator-1", "首个任务", null, "admin-1");
-        taskService.cancel(first.taskId(), "取消", "admin-1");
+        taskService.cancel(first.taskId(), "取消", principal("admin-1", Role.ADMIN));
         assertThat(taskRepository.existsByLawIdAndTaskStateIn(
                 "law-1", TaskStateRules.UNFINISHED_STATES)).isFalse();
 
@@ -246,7 +246,8 @@ class TaskPersistenceIntegrationTests {
         insertEligibleLawAndAnnotator();
         TaskDetailResponse pending = taskService.createOrdinaryTask(
                 "law-1", "annotator-1", null, null, "admin-1");
-        assertThat(taskService.cancel(pending.taskId(), "取消", "admin-1").taskState())
+        assertThat(taskService.cancel(
+                        pending.taskId(), "取消", principal("admin-1", Role.ADMIN)).taskState())
                 .isEqualTo(TaskState.CANCELED);
         assertThat(taskRepository.existsByLawIdAndTaskStateIn(
                 "law-1", TaskStateRules.UNFINISHED_STATES)).isFalse();
@@ -263,7 +264,8 @@ class TaskPersistenceIntegrationTests {
                 TaskDocument.class);
 
         assertCode(
-                () -> taskService.cancel(next.taskId(), "不能取消", "admin-1"),
+                () -> taskService.cancel(
+                        next.taskId(), "不能取消", principal("admin-1", Role.ADMIN)),
                 TaskErrorCodes.INVALID_STATE_TRANSITION);
     }
 

@@ -148,9 +148,12 @@ public class TaskService {
         throw invalidTransition(current.getTaskState(), "开始");
     }
 
-    public TaskDetailResponse cancel(String taskId, String reason, String canceledBy) {
+    public TaskDetailResponse cancel(String taskId, String reason, UserPrincipal currentUser) {
+        if (currentUser == null || currentUser.role() != Role.ADMIN) {
+            throw forbidden();
+        }
         String validTaskId = requireIdentifier(taskId, "taskId");
-        String validCanceledBy = requireIdentifier(canceledBy, "canceledBy");
+        String validCanceledBy = requireIdentifier(currentUser.id(), "currentUser.id");
         String validReason = requiredText(reason, "reason", 500);
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("_id").is(validTaskId)
