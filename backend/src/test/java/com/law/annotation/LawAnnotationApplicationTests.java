@@ -1,5 +1,6 @@
 package com.law.annotation;
 
+import com.law.annotation.annotation.AnnotationDraftRepository;
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
 import com.law.annotation.field.FieldConfigIndexInitializer;
 import com.law.annotation.field.FieldConfigRepository;
@@ -48,6 +49,9 @@ class LawAnnotationApplicationTests {
 
     @MockitoBean
     private TaskRepository taskRepository;
+
+    @MockitoBean
+    private AnnotationDraftRepository annotationDraftRepository;
 
     @MockitoBean
     private MongoTemplate mongoTemplate;
