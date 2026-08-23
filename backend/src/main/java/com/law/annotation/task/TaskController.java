@@ -42,14 +42,13 @@ public class TaskController {
             @RequestParam(required = false) String annotatorId,
             @RequestParam(required = false) TaskState state,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "10") int size,
             @AuthenticationPrincipal UserPrincipal principal) {
-        requireRole(principal, Role.ADMIN);
         return ApiResponse.success(taskService.list(
-                taskName, taskType, lawId, annotatorId, state, page, size));
+                taskName, taskType, lawId, annotatorId, state, page, size, principal));
     }
 
-    @PostMapping
+    @PostMapping("/ordinary")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<TaskDetailResponse> create(
             @Valid @RequestBody CreateOrdinaryTaskRequest request,

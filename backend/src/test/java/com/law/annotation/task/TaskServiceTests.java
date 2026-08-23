@@ -29,6 +29,7 @@ import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 
 class TaskServiceTests {
 
@@ -114,6 +116,84 @@ class TaskServiceTests {
                 () -> service.createOrdinaryTask(
                         "law-1", "annotator-1", null, null, "admin-1"),
                 TaskErrorCodes.TASK_ALREADY_EXISTS);
+    }
+
+    @Test
+    void blankTaskNamesAreGeneratedFromLawName() {
+        stubEligibleCreation();
+        when(taskRepository.insert(any(TaskDocument.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(Arrays.asList(null, "", "   ").stream()
+                        .map(taskName -> service.createOrdinaryTask(
+                                "law-1", "annotator-1", taskName, null, "admin-1")
+                                .taskName()))
+                .containsOnly("测试法普通标注任务")
+                .allSatisfy(taskName -> assertThat(taskName).isNotBlank());
+    }
+
+    @Test
+    void customTaskNameIsTrimmedAndLimitedToOneHundredCharacters() {
+        stubEligibleCreation();
+        when(taskRepository.insert(any(TaskDocument.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(service.createOrdinaryTask(
+                        "law-1", "annotator-1", "  自定义任务  ", null, "admin-1")
+                        .taskName())
+                .isEqualTo("自定义任务");
+        assertCode(
+                () -> service.createOrdinaryTask(
+                        "law-1", "annotator-1", "名".repeat(101), null, "admin-1"),
+                "COMMON.VALIDATION_FAILED");
+    }
+
+    @Test
+    void generatedTaskNameKeepsReadableSuffixWithinOneHundredCharacters() {
+        stubEligibleCreation("法".repeat(100));
+        when(taskRepository.insert(any(TaskDocument.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        String generated = service.createOrdinaryTask(
+                        "law-1", "annotator-1", null, null, "admin-1")
+                .taskName();
+
+        assertThat(generated).endsWith("普通标注任务");
+        assertThat(generated.codePointCount(0, generated.length())).isEqualTo(100);
+    }
+
+    @Test
+    void adminListKeepsRequestedAnnotatorFilter() {
+        UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
+        when(mongoTemplate.count(any(Query.class),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class))).thenReturn(0L);
+        when(mongoTemplate.find(any(Query.class),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class))).thenReturn(List.of());
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+
+        service.list(null, null, null, "annotator-2", null, 0, 10, admin);
+
+        verify(mongoTemplate).count(
+                queryCaptor.capture(), org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+        assertThat(queryCaptor.getValue().getQueryObject().getString("annotatorId"))
+                .isEqualTo("annotator-2");
+    }
+
+    @Test
+    void annotatorListOverridesRequestedAnnotatorFilterWithCurrentUser() {
+        UserPrincipal annotator = UserPrincipal.from(user("annotator-1", Role.ANNOTATOR, true));
+        when(mongoTemplate.count(any(Query.class),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class))).thenReturn(0L);
+        when(mongoTemplate.find(any(Query.class),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class))).thenReturn(List.of());
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+
+        service.list(null, null, null, "annotator-2", null, 0, 10, annotator);
+
+        verify(mongoTemplate).count(
+                queryCaptor.capture(), org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+        assertThat(queryCaptor.getValue().getQueryObject().getString("annotatorId"))
+                .isEqualTo("annotator-1");
     }
 
     @Test
@@ -304,7 +384,12 @@ class TaskServiceTests {
     }
 
     private void stubEligibleCreation() {
-        when(lawRepository.findById("law-1")).thenReturn(Optional.of(law(null, false, null)));
+        stubEligibleCreation("测试法");
+    }
+
+    private void stubEligibleCreation(String lawName) {
+        when(lawRepository.findById("law-1"))
+                .thenReturn(Optional.of(law(lawName, null, false, null)));
         when(contentVersionRepository.findById("content-1"))
                 .thenReturn(Optional.of(contentVersion(
                         "law-1", List.of(ArticleSnapshot.createNew("第一条", "正文", 0)))));
@@ -317,11 +402,19 @@ class TaskServiceTests {
             Instant deletedAt,
             boolean pendingRevision,
             String annotationVersionId) {
+        return law("测试法", deletedAt, pendingRevision, annotationVersionId);
+    }
+
+    private static LawDocument law(
+            String name,
+            Instant deletedAt,
+            boolean pendingRevision,
+            String annotationVersionId) {
         Instant now = Instant.parse("2026-08-23T00:00:00Z");
         return new LawDocument(
                 "law-1",
-                "测试法",
-                "测试法",
+                name,
+                name,
                 "制定机关",
                 LocalDate.of(2026, 8, 23),
                 ValidityStatus.ACTIVE,

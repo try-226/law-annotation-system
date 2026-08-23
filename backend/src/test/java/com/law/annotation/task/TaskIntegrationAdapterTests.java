@@ -27,7 +27,8 @@ class TaskIntegrationAdapterTests {
     void userUsagePortUsesTaskDataWithoutReviewImplementation() {
         when(taskRepository.existsByAnnotatorIdAndTaskStateIn(
                 "annotator-1", TaskStateRules.UNFINISHED_STATES)).thenReturn(true);
-        when(taskRepository.existsByAnnotatorId("annotator-1")).thenReturn(true);
+        when(taskRepository.existsByAnnotatorIdOrCreatedByOrCanceledBy(
+                "annotator-1", "annotator-1", "annotator-1")).thenReturn(true);
         TaskUserBusinessUsageAdapter adapter = new TaskUserBusinessUsageAdapter(taskRepository);
 
         assertThat(adapter.hasActiveTask("annotator-1")).isTrue();

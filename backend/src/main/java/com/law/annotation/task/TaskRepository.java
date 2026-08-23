@@ -11,7 +11,8 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
 
     boolean existsByAnnotatorIdAndTaskStateIn(String annotatorId, Collection<TaskState> states);
 
-    boolean existsByAnnotatorId(String annotatorId);
+    boolean existsByAnnotatorIdOrCreatedByOrCanceledBy(
+            String annotatorId, String createdBy, String canceledBy);
 
     Optional<TaskDocument> findByTaskIdAndAnnotatorId(String taskId, String annotatorId);
 }

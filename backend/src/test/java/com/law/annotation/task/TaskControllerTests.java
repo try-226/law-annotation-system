@@ -76,7 +76,7 @@ class TaskControllerTests {
                 "law-1", "annotator-1", "任务一", "备注", "admin-1"))
                 .thenReturn(detail(TaskState.PENDING_ANNOTATION));
 
-        mockMvc.perform(post("/tasks")
+        mockMvc.perform(post("/tasks/ordinary")
                         .with(user(UserPrincipal.from(admin)))
                         .with(csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -98,7 +98,7 @@ class TaskControllerTests {
         UserDocument admin = activeUser("admin-1", Role.ADMIN);
         when(userRepository.findById("admin-1")).thenReturn(Optional.of(admin));
 
-        mockMvc.perform(post("/tasks")
+        mockMvc.perform(post("/tasks/ordinary")
                         .with(user(UserPrincipal.from(admin)))
                         .with(csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -173,7 +173,7 @@ class TaskControllerTests {
         UserDocument annotator = activeUser("annotator-1", Role.ANNOTATOR);
         when(userRepository.findById("annotator-1")).thenReturn(Optional.of(annotator));
 
-        mockMvc.perform(post("/tasks")
+        mockMvc.perform(post("/tasks/ordinary")
                         .with(user(UserPrincipal.from(annotator)))
                         .with(csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -192,17 +192,61 @@ class TaskControllerTests {
         TaskListItemResponse item = new TaskListItemResponse(
                 "task-1", "任务一", TaskType.ORDINARY, "law-1", "测试法",
                 "annotator-1", "标注员", TaskState.PENDING_ANNOTATION, "备注", Instant.now());
-        when(taskService.list(null, null, null, null, null, 0, 20))
-                .thenReturn(new PageResponse<>(List.of(item), 0, 20, 1, 1));
+        when(taskService.list(null, null, null, null, null, 0, 10, principal))
+                .thenReturn(new PageResponse<>(List.of(item), 0, 10, 1, 1));
         when(taskService.getDetail("task-1", principal))
                 .thenReturn(detail(TaskState.PENDING_ANNOTATION));
 
         mockMvc.perform(get("/tasks").with(user(principal)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items[0].lawName").value("测试法"));
+                .andExpect(jsonPath("$.data.items[0].lawName").value("测试法"))
+                .andExpect(jsonPath("$.data.size").value(10));
         mockMvc.perform(get("/tasks/task-1").with(user(principal)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.contentVersionId").value("content-1"));
+    }
+
+    @Test
+    void annotatorListsOwnTasks() throws Exception {
+        UserDocument annotator = activeUser("annotator-1", Role.ANNOTATOR);
+        UserPrincipal principal = UserPrincipal.from(annotator);
+        when(userRepository.findById("annotator-1")).thenReturn(Optional.of(annotator));
+        TaskListItemResponse item = new TaskListItemResponse(
+                "task-1", "任务一", TaskType.ORDINARY, "law-1", "测试法",
+                "annotator-1", "标注员", TaskState.PENDING_ANNOTATION, null, Instant.now());
+        when(taskService.list(null, null, null, null, null, 0, 10, principal))
+                .thenReturn(new PageResponse<>(List.of(item), 0, 10, 1, 1));
+
+        mockMvc.perform(get("/tasks").with(user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].annotatorId").value("annotator-1"));
+    }
+
+    @Test
+    void annotatorCannotUseListFilterToReadAnotherAnnotatorsTasks() throws Exception {
+        UserDocument annotator = activeUser("annotator-1", Role.ANNOTATOR);
+        UserPrincipal principal = UserPrincipal.from(annotator);
+        when(userRepository.findById("annotator-1")).thenReturn(Optional.of(annotator));
+        when(taskService.list(null, null, null, "annotator-2", null, 0, 10, principal))
+                .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+
+        mockMvc.perform(get("/tasks")
+                        .param("annotatorId", "annotator-2")
+                        .with(user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty());
+
+        verify(taskService).list(
+                null, null, null, "annotator-2", null, 0, 10, principal);
+    }
+
+    @Test
+    void oldTaskCreationEndpointIsNotMapped() {
+        assertThat(handlerMapping.getHandlerMethods().entrySet())
+                .noneMatch(entry -> entry.getValue().getBeanType() == TaskController.class
+                        && entry.getKey().getMethodsCondition().getMethods()
+                                .contains(RequestMethod.POST)
+                        && entry.getKey().getPatternValues().contains("/tasks"));
     }
 
     @Test

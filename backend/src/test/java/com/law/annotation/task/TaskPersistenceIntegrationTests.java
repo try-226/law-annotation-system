@@ -37,6 +37,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.bson.Document;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -180,7 +181,15 @@ class TaskPersistenceIntegrationTests {
                         .orElseThrow()
                         .required())
                 .isEqualTo(summaryRequiredAtCreation);
-        assertThat(taskService.list("快照", null, "law-1", "annotator-1", null, 0, 20)
+        assertThat(taskService.list(
+                                "快照",
+                                null,
+                                "law-1",
+                                "annotator-1",
+                                null,
+                                0,
+                                20,
+                                principal("admin-1", Role.ADMIN))
                         .items())
                 .singleElement()
                 .satisfies(item -> {
@@ -188,6 +197,23 @@ class TaskPersistenceIntegrationTests {
                     assertThat(item.lawName()).isEqualTo("测试法");
                     assertThat(item.annotatorName()).isEqualTo("标注员甲");
                 });
+    }
+
+    @Test
+    void businessHistoryIncludesAnnotatorCreatorAndCanceler() {
+        mongoTemplate.getCollection("tasks").insertMany(List.of(
+                historyTask("task-annotator", "law-annotator")
+                        .append("annotatorId", "annotator-history"),
+                historyTask("task-creator", "law-creator")
+                        .append("createdBy", "creator-history"),
+                historyTask("task-canceler", "law-canceler")
+                        .append("canceledBy", "canceler-history")));
+        TaskUserBusinessUsageAdapter adapter = new TaskUserBusinessUsageAdapter(taskRepository);
+
+        assertThat(adapter.hasBusinessHistory("annotator-history")).isTrue();
+        assertThat(adapter.hasBusinessHistory("creator-history")).isTrue();
+        assertThat(adapter.hasBusinessHistory("canceler-history")).isTrue();
+        assertThat(adapter.hasBusinessHistory("no-task-history")).isFalse();
     }
 
     @Test
@@ -345,6 +371,13 @@ class TaskPersistenceIntegrationTests {
                 now);
         user.setId(id);
         return UserPrincipal.from(user);
+    }
+
+    private static Document historyTask(String taskId, String lawId) {
+        return new Document("_id", taskId)
+                .append("lawId", lawId)
+                .append("taskType", "ORDINARY")
+                .append("taskState", "CANCELED");
     }
 
     private static void assertCode(

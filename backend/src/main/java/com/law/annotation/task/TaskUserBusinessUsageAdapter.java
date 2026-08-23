@@ -25,6 +25,7 @@ public class TaskUserBusinessUsageAdapter implements UserBusinessUsagePort {
 
     @Override
     public boolean hasBusinessHistory(String userId) {
-        return taskRepository.existsByAnnotatorId(userId);
+        return taskRepository.existsByAnnotatorIdOrCreatedByOrCanceledBy(
+                userId, userId, userId);
     }
 }

@@ -37,6 +37,8 @@ import org.springframework.stereotype.Service;
 public class TaskService {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_TASK_NAME_LENGTH = 100;
+    private static final String AUTO_TASK_NAME_SUFFIX = "普通标注任务";
     private static final List<TaskState> CANCELABLE_STATES = List.of(
             TaskState.PENDING_ANNOTATION,
             TaskState.ANNOTATING);
@@ -72,10 +74,10 @@ public class TaskService {
         String validLawId = requireIdentifier(lawId, "lawId");
         String validAnnotatorId = requireIdentifier(annotatorId, "annotatorId");
         String validCreator = requireIdentifier(createdBy, "createdBy");
-        String validTaskName = optionalText(taskName, "taskName", 100);
         String validRemark = optionalText(remark, "remark", 500);
 
         LawDocument law = requireEligibleLaw(validLawId);
+        String validTaskName = resolveTaskName(taskName, law.getName());
         if (taskRepository.existsByLawIdAndTaskStateIn(
                 validLawId, TaskStateRules.UNFINISHED_STATES)) {
             throw activeTaskConflict();
@@ -182,7 +184,9 @@ public class TaskService {
             String annotatorId,
             TaskState taskState,
             int page,
-            int size) {
+            int size,
+            UserPrincipal currentUser) {
+        String effectiveAnnotatorId = effectiveAnnotatorFilter(annotatorId, currentUser);
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw validation("page/size", "page不能小于0，size须为1至100");
         }
@@ -193,8 +197,9 @@ public class TaskService {
         if (lawId != null && !lawId.isBlank()) {
             criteria = criteria.and("lawId").is(requireIdentifier(lawId, "lawId"));
         }
-        if (annotatorId != null && !annotatorId.isBlank()) {
-            criteria = criteria.and("annotatorId").is(requireIdentifier(annotatorId, "annotatorId"));
+        if (effectiveAnnotatorId != null && !effectiveAnnotatorId.isBlank()) {
+            criteria = criteria.and("annotatorId").is(
+                    requireIdentifier(effectiveAnnotatorId, "annotatorId"));
         }
         if (taskState != null) {
             criteria = criteria.and("taskState").is(taskState);
@@ -332,6 +337,44 @@ public class TaskService {
             return null;
         }
         return requiredText(value, path, maxLength);
+    }
+
+    private static String resolveTaskName(String taskName, String lawName) {
+        if (taskName != null && !taskName.isBlank()) {
+            return requiredText(taskName, "taskName", MAX_TASK_NAME_LENGTH);
+        }
+        String validLawName = lawName == null ? "" : lawName.trim();
+        if (validLawName.isBlank()) {
+            return AUTO_TASK_NAME_SUFFIX;
+        }
+        int suffixLength = AUTO_TASK_NAME_SUFFIX.codePointCount(
+                0, AUTO_TASK_NAME_SUFFIX.length());
+        int maxLawNameLength = MAX_TASK_NAME_LENGTH - suffixLength;
+        return truncateToCodePoints(validLawName, maxLawNameLength)
+                + AUTO_TASK_NAME_SUFFIX;
+    }
+
+    private static String truncateToCodePoints(String value, int maxLength) {
+        int codePointCount = value.codePointCount(0, value.length());
+        if (codePointCount <= maxLength) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, maxLength));
+    }
+
+    private static String effectiveAnnotatorFilter(
+            String requestedAnnotatorId,
+            UserPrincipal currentUser) {
+        if (currentUser == null) {
+            throw forbidden();
+        }
+        if (currentUser.role() == Role.ADMIN) {
+            return requestedAnnotatorId;
+        }
+        if (currentUser.role() == Role.ANNOTATOR) {
+            return currentUser.id();
+        }
+        throw forbidden();
     }
 
     private static String requiredText(String value, String path, int maxLength) {
