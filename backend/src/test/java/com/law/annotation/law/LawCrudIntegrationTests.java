@@ -294,6 +294,33 @@ class LawCrudIntegrationTests {
     }
 
     @Test
+    void normalizedNoOpArticleUpdateDoesNotCreateVersionOrPendingChanges() {
+        InitialLawCreation creation = createLaw("法条无变化测试法");
+        String lawId = creation.law().getId();
+        String articleId = creation.contentVersion().getSemanticArticlesSnapshot().getFirst().getArticleId();
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is(lawId)),
+                new Update().set("currentAnnotationVersionId", "annotation-1"),
+                LawDocument.class);
+        LawMaintenanceService service = maintenanceService(List.of());
+
+        LawDetailResponse updated = service.updateArticle(
+                lawId,
+                articleId,
+                new UpdateLawArticleRequest("第一条", "\n旧正文\n", 0),
+                "admin-1");
+
+        LawDocument stored = lawRepository.findById(lawId).orElseThrow();
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(lawId)).hasSize(1);
+        assertThat(updated.currentContentVersionId()).isEqualTo(creation.contentVersion().getId());
+        assertThat(updated.currentContentVersionSeq()).isEqualTo(1);
+        assertThat(stored.getCurrentContentVersionId()).isEqualTo(creation.contentVersion().getId());
+        assertThat(updated.pendingRevision()).isFalse();
+        assertThat(stored.isPendingRevision()).isFalse();
+        assertThat(stored.getPendingChangeSet().isEmpty()).isTrue();
+    }
+
+    @Test
     void articleUpdateCreatesC2KeepsStableIdentityAndLeavesC1Immutable() {
         InitialLawCreation creation = createLaw("法条修改测试法");
         String articleId = creation.contentVersion().getSemanticArticlesSnapshot().getFirst().getArticleId();
@@ -314,6 +341,8 @@ class LawCrudIntegrationTests {
                 .isEqualTo(articleId);
         assertThat(versions.get(1).getSemanticArticlesSnapshot().getFirst().getBody())
                 .isEqualTo("新正文");
+        assertThat(updated.currentContentVersionId()).isEqualTo(versions.get(1).getId());
+        assertThat(updated.currentContentVersionId()).isNotEqualTo(versions.getFirst().getId());
         assertThat(updated.currentContentVersionSeq()).isEqualTo(2);
         assertThat(updated.pendingRevision()).isFalse();
     }

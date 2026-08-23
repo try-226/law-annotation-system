@@ -40,6 +40,13 @@ class LawStructureNodeTests {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void rejectsControlCharactersInStructureTitle() {
+        assertThatThrownBy(() -> node("第一章" + '\0'))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("控制字符");
+    }
+
     private static LawStructureNode node(String title) {
         return new LawStructureNode(
                 "chapter-1",
