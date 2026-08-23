@@ -1,5 +1,7 @@
 package com.law.annotation.task;
 
+import com.law.annotation.auth.AuthErrorCodes;
+import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.Role;
 import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.enums.TaskType;
@@ -228,8 +230,20 @@ public class TaskService {
         return new PageResponse<>(items, page, size, totalElements, totalPages);
     }
 
-    public TaskDetailResponse getDetail(String taskId) {
-        return TaskDetailResponse.from(requireTask(requireIdentifier(taskId, "taskId")));
+    public TaskDetailResponse getDetail(String taskId, UserPrincipal currentUser) {
+        String validTaskId = requireIdentifier(taskId, "taskId");
+        if (currentUser == null) {
+            throw forbidden();
+        }
+        if (currentUser.role() == Role.ADMIN) {
+            return TaskDetailResponse.from(requireTask(validTaskId));
+        }
+        if (currentUser.role() == Role.ANNOTATOR) {
+            return taskRepository.findByTaskIdAndAnnotatorId(validTaskId, currentUser.id())
+                    .map(TaskDetailResponse::from)
+                    .orElseThrow(TaskService::taskNotFound);
+        }
+        throw forbidden();
     }
 
     private LawDocument requireEligibleLaw(String lawId) {
@@ -289,10 +303,21 @@ public class TaskService {
     }
 
     private TaskDocument requireTask(String taskId) {
-        return taskRepository.findById(taskId).orElseThrow(() -> new ApiException(
+        return taskRepository.findById(taskId).orElseThrow(TaskService::taskNotFound);
+    }
+
+    private static ApiException taskNotFound() {
+        return new ApiException(
                 HttpStatus.NOT_FOUND,
                 TaskErrorCodes.NOT_FOUND,
-                "任务不存在"));
+                "任务不存在");
+    }
+
+    private static ApiException forbidden() {
+        return new ApiException(
+                HttpStatus.FORBIDDEN,
+                AuthErrorCodes.FORBIDDEN,
+                "无权执行此操作");
     }
 
     private static String requireIdentifier(String value, String path) {
@@ -322,7 +347,7 @@ public class TaskService {
     private static ApiException activeTaskConflict() {
         return new ApiException(
                 HttpStatus.CONFLICT,
-                TaskErrorCodes.ACTIVE_TASK_EXISTS,
+                TaskErrorCodes.TASK_ALREADY_EXISTS,
                 "该法律已存在未结束任务");
     }
 

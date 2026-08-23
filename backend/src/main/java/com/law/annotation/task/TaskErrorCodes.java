@@ -6,7 +6,7 @@ public final class TaskErrorCodes {
     public static final String LAW_NOT_FOUND = "TASK.LAW_NOT_FOUND";
     public static final String LAW_DELETED = "TASK.LAW_DELETED";
     public static final String FORMAL_ANNOTATION_EXISTS = "TASK.FORMAL_ANNOTATION_EXISTS";
-    public static final String ACTIVE_TASK_EXISTS = "TASK.ACTIVE_TASK_EXISTS";
+    public static final String TASK_ALREADY_EXISTS = "TASK_ALREADY_EXISTS";
     public static final String CONTENT_VERSION_INVALID = "TASK.CONTENT_VERSION_INVALID";
     public static final String NO_VALID_ARTICLE = "TASK.NO_VALID_ARTICLE";
     public static final String ANNOTATOR_NOT_FOUND = "TASK.ANNOTATOR_NOT_FOUND";

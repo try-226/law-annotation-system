@@ -3,6 +3,7 @@ package com.law.annotation.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.Role;
 import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.enums.ValidityStatus;
@@ -106,8 +107,13 @@ class TaskPersistenceIntegrationTests {
             start.countDown();
 
             assertThat(List.of(first.get(), second.get()))
-                    .containsExactlyInAnyOrder("SUCCESS", TaskErrorCodes.ACTIVE_TASK_EXISTS);
+                    .containsExactlyInAnyOrder("SUCCESS", TaskErrorCodes.TASK_ALREADY_EXISTS);
             assertThat(taskRepository.count()).isEqualTo(1);
+            assertThat(mongoTemplate.count(
+                            Query.query(Criteria.where("lawId").is("law-1")
+                                    .and("taskState").in(TaskStateRules.UNFINISHED_STATES)),
+                            TaskDocument.class))
+                    .isEqualTo(1);
             assertThat(taskRepository.existsByLawIdAndTaskStateIn(
                     "law-1", TaskStateRules.UNFINISHED_STATES)).isTrue();
         } finally {
@@ -135,7 +141,7 @@ class TaskPersistenceIntegrationTests {
                     .containsExactlyInAnyOrder(
                             "SUCCESS",
                             TaskErrorCodes.INVALID_STATE_TRANSITION);
-            assertThat(taskService.getDetail(created.taskId()).taskState())
+            assertThat(taskService.getDetail(created.taskId(), principal("annotator-1", Role.ANNOTATOR)).taskState())
                     .isEqualTo(TaskState.ANNOTATING);
         } finally {
             executor.shutdownNow();
@@ -161,7 +167,8 @@ class TaskPersistenceIntegrationTests {
                 LawDocument.class);
         fieldConfigService.updateRequired("summary", !summaryRequiredAtCreation, "admin-1", Role.ADMIN);
 
-        TaskDetailResponse stored = taskService.getDetail(created.taskId());
+        TaskDetailResponse stored = taskService.getDetail(
+                created.taskId(), principal("admin-1", Role.ADMIN));
         assertThat(stored.lawBaseInfoSnapshot().name()).isEqualTo("测试法");
         assertThat(stored.structureSnapshot()).hasSize(1);
         assertThat(stored.contentVersionSnapshot().articles())
@@ -321,6 +328,21 @@ class TaskPersistenceIntegrationTests {
                 now);
         annotator.setId("annotator-1");
         userRepository.insert(annotator);
+    }
+
+    private static UserPrincipal principal(String id, Role role) {
+        Instant now = Instant.parse("2026-08-23T00:00:00Z");
+        UserDocument user = new UserDocument(
+                role == Role.ADMIN ? "管理员" : "标注员甲",
+                id,
+                id,
+                "$2a$12$hash",
+                role,
+                true,
+                now,
+                now);
+        user.setId(id);
+        return UserPrincipal.from(user);
     }
 
     private static void assertCode(

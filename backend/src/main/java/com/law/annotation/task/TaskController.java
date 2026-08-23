@@ -67,8 +67,7 @@ public class TaskController {
     public ApiResponse<TaskDetailResponse> detail(
             @PathVariable String taskId,
             @AuthenticationPrincipal UserPrincipal principal) {
-        requireRole(principal, Role.ADMIN);
-        return ApiResponse.success(taskService.getDetail(taskId));
+        return ApiResponse.success(taskService.getDetail(taskId, principal));
     }
 
     @PostMapping("/{taskId}/start")

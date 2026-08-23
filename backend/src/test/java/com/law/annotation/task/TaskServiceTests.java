@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.Role;
 import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.enums.TaskType;
@@ -33,6 +34,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
 class TaskServiceTests {
@@ -98,8 +100,52 @@ class TaskServiceTests {
         assertCode(
                 () -> service.createOrdinaryTask(
                         "law-1", "annotator-1", null, null, "admin-1"),
-                TaskErrorCodes.ACTIVE_TASK_EXISTS);
+                TaskErrorCodes.TASK_ALREADY_EXISTS);
         verify(taskRepository, never()).insert(any(TaskDocument.class));
+    }
+
+    @Test
+    void duplicateKeyDuringConcurrentCreationBecomesTaskBusinessError() {
+        stubEligibleCreation();
+        when(taskRepository.insert(any(TaskDocument.class)))
+                .thenThrow(new DuplicateKeyException("duplicate lawId"));
+
+        assertCode(
+                () -> service.createOrdinaryTask(
+                        "law-1", "annotator-1", null, null, "admin-1"),
+                TaskErrorCodes.TASK_ALREADY_EXISTS);
+    }
+
+    @Test
+    void adminCanReadAnyTaskDetail() {
+        TaskDocument task = task(TaskState.PENDING_ANNOTATION, null);
+        UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
+        when(taskRepository.findById("task-1")).thenReturn(Optional.of(task));
+
+        assertThat(service.getDetail("task-1", admin).taskId()).isEqualTo("task-1");
+    }
+
+    @Test
+    void annotatorCanReadOwnTaskDetail() {
+        TaskDocument task = task(TaskState.PENDING_ANNOTATION, null);
+        UserPrincipal annotator = UserPrincipal.from(user("annotator-1", Role.ANNOTATOR, true));
+        when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-1"))
+                .thenReturn(Optional.of(task));
+
+        assertThat(service.getDetail("task-1", annotator).annotatorId())
+                .isEqualTo("annotator-1");
+    }
+
+    @Test
+    void annotatorCannotReadAnotherAnnotatorsTaskDetail() {
+        UserPrincipal annotator = UserPrincipal.from(user("annotator-2", Role.ANNOTATOR, true));
+        when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-2"))
+                .thenReturn(Optional.empty());
+
+        assertCode(
+                () -> service.getDetail("task-1", annotator),
+                TaskErrorCodes.NOT_FOUND);
+        verify(taskRepository, never()).findById("task-1");
     }
 
     @Test

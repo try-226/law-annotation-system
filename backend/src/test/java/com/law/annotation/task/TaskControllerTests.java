@@ -166,20 +166,51 @@ class TaskControllerTests {
     @Test
     void adminListsAndReadsTaskDetails() throws Exception {
         UserDocument admin = activeUser("admin-1", Role.ADMIN);
+        UserPrincipal principal = UserPrincipal.from(admin);
         when(userRepository.findById("admin-1")).thenReturn(Optional.of(admin));
         TaskListItemResponse item = new TaskListItemResponse(
                 "task-1", "任务一", TaskType.ORDINARY, "law-1", "测试法",
                 "annotator-1", "标注员", TaskState.PENDING_ANNOTATION, "备注", Instant.now());
         when(taskService.list(null, null, null, null, null, 0, 20))
                 .thenReturn(new PageResponse<>(List.of(item), 0, 20, 1, 1));
-        when(taskService.getDetail("task-1")).thenReturn(detail(TaskState.PENDING_ANNOTATION));
+        when(taskService.getDetail("task-1", principal))
+                .thenReturn(detail(TaskState.PENDING_ANNOTATION));
 
-        mockMvc.perform(get("/tasks").with(user(UserPrincipal.from(admin))))
+        mockMvc.perform(get("/tasks").with(user(principal)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].lawName").value("测试法"));
-        mockMvc.perform(get("/tasks/task-1").with(user(UserPrincipal.from(admin))))
+        mockMvc.perform(get("/tasks/task-1").with(user(principal)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.contentVersionId").value("content-1"));
+    }
+
+    @Test
+    void annotatorReadsOwnTaskDetail() throws Exception {
+        UserDocument annotator = activeUser("annotator-1", Role.ANNOTATOR);
+        UserPrincipal principal = UserPrincipal.from(annotator);
+        when(userRepository.findById("annotator-1")).thenReturn(Optional.of(annotator));
+        when(taskService.getDetail("task-1", principal))
+                .thenReturn(detail(TaskState.PENDING_ANNOTATION));
+
+        mockMvc.perform(get("/tasks/task-1").with(user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.annotatorId").value("annotator-1"));
+    }
+
+    @Test
+    void annotatorCannotReadAnotherAnnotatorsTaskDetail() throws Exception {
+        UserDocument annotator = activeUser("annotator-2", Role.ANNOTATOR);
+        UserPrincipal principal = UserPrincipal.from(annotator);
+        when(userRepository.findById("annotator-2")).thenReturn(Optional.of(annotator));
+        when(taskService.getDetail("task-1", principal)).thenThrow(new com.law.annotation.common.exception.ApiException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                TaskErrorCodes.NOT_FOUND,
+                "任务不存在"));
+
+        mockMvc.perform(get("/tasks/task-1").with(user(principal)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(TaskErrorCodes.NOT_FOUND))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.law.annotation.task;
 
 import com.law.annotation.common.enums.TaskState;
 import java.util.Collection;
+import java.util.Optional;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface TaskRepository extends MongoRepository<TaskDocument, String> {
@@ -11,4 +12,6 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
     boolean existsByAnnotatorIdAndTaskStateIn(String annotatorId, Collection<TaskState> states);
 
     boolean existsByAnnotatorId(String annotatorId);
+
+    Optional<TaskDocument> findByTaskIdAndAnnotatorId(String taskId, String annotatorId);
 }
