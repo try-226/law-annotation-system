@@ -41,6 +41,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 class TaskServiceTests {
 
@@ -346,6 +347,51 @@ class TaskServiceTests {
     }
 
     @Test
+    void submitReviewUsesConditionalStateTransition() {
+        TaskDocument pendingReview = task(TaskState.PENDING_REVIEW, null);
+        when(mongoTemplate.findAndModify(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class)))
+                .thenReturn(pendingReview);
+
+        TaskDetailResponse response = service.submitReview(
+                "task-1", "annotator-1", "submission-1");
+
+        assertThat(response.taskState()).isEqualTo(TaskState.PENDING_REVIEW);
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(
+                queryCaptor.capture(), updateCaptor.capture(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+        assertThat(queryCaptor.getValue().getQueryObject())
+                .containsEntry("taskState", TaskState.ANNOTATING)
+                .containsEntry("annotatorId", "annotator-1")
+                .containsKey("initialSubmissionId");
+        assertThat(updateCaptor.getValue().getUpdateObject().get("$set", org.bson.Document.class))
+                .containsEntry("taskState", TaskState.PENDING_REVIEW)
+                .containsEntry("initialSubmissionId", "submission-1");
+    }
+
+    @Test
+    void repeatedSubmitReviewHasStableBusinessError() {
+        when(taskRepository.findById("task-1"))
+                .thenReturn(Optional.of(task(TaskState.PENDING_REVIEW, null)));
+
+        assertCode(
+                () -> service.submitReview("task-1", "annotator-1", "submission-1"),
+                TaskErrorCodes.ALREADY_SUBMITTED);
+    }
+
+    @Test
+    void onlyAssignedAnnotatorCanSubmitReview() {
+        when(taskRepository.findById("task-1"))
+                .thenReturn(Optional.of(task(TaskState.ANNOTATING, null)));
+
+        assertCode(
+                () -> service.submitReview("task-1", "other-annotator", "submission-1"),
+                TaskErrorCodes.NOT_ASSIGNEE);
+    }
+
+    @Test
     void pendingAndAnnotatingTasksCanBeCanceledWithTrimmedReason() {
         TaskDocument canceled = task(TaskState.CANCELED, "管理员取消");
         UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
@@ -496,6 +542,7 @@ class TaskServiceTests {
                 List.of(),
                 fieldSnapshot(),
                 "admin-1",
+                null,
                 cancelReason,
                 cancelReason == null ? null : "admin-1",
                 cancelReason == null ? null : now,

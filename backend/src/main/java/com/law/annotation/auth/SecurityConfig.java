@@ -107,7 +107,11 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, "X-CSRF-TOKEN"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
+        CorsConfiguration annotationDraftConfiguration = new CorsConfiguration(configuration);
+        annotationDraftConfiguration.setAllowedMethods(
+                List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/tasks/*/draft/**", annotationDraftConfiguration);
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
