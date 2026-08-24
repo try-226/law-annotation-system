@@ -1,15 +1,11 @@
 package com.law.annotation.law;
 
 import com.law.annotation.common.exception.ApiException;
-import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.response.ErrorLocator;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.LawDetailResponse;
-import com.law.annotation.law.dto.LawDetailViewResponse;
 import com.law.annotation.law.dto.LawListItemResponse;
 import com.law.annotation.law.dto.RecycleLawListItemResponse;
-import com.law.annotation.task.TaskDocument;
-import com.law.annotation.task.TaskRepository;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import java.util.List;
@@ -26,27 +22,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class LawQueryService {
 
-    private static final List<TaskState> UNFINISHED_TASK_STATES = List.of(
-            TaskState.PENDING_ANNOTATION,
-            TaskState.ANNOTATING,
-            TaskState.PENDING_REVIEW,
-            TaskState.PARTIALLY_REJECTED,
-            TaskState.PENDING_REREVIEW);
-
     private final LawRepository lawRepository;
     private final ContentVersionRepository contentVersionRepository;
-    private final LawAuditRepository lawAuditRepository;
-    private final TaskRepository taskRepository;
 
     public LawQueryService(
             LawRepository lawRepository,
-            ContentVersionRepository contentVersionRepository,
-            LawAuditRepository lawAuditRepository,
-            TaskRepository taskRepository) {
+            ContentVersionRepository contentVersionRepository) {
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
-        this.lawAuditRepository = lawAuditRepository;
-        this.taskRepository = taskRepository;
     }
 
     public PageResponse<LawListItemResponse> list(String name, int page, int size) {
@@ -106,23 +89,11 @@ public class LawQueryService {
 
     public LawDetailResponse getDetail(String lawId) {
         LawDocument law = requireVisibleLaw(lawId);
-        ContentVersionDocument version = requireCurrentVersion(law);
+        ContentVersionDocument version = contentVersionRepository
+                .findById(law.getCurrentContentVersionId())
+                .filter(candidate -> law.getId().equals(candidate.getLawId()))
+                .orElseThrow(LawQueryService::versionInconsistent);
         return LawResponseMapper.toDetail(law, version);
-    }
-
-    public LawDetailViewResponse getViewDetail(String lawId) {
-        LawDocument law = requireVisibleLaw(lawId);
-        ContentVersionDocument version = requireCurrentVersion(law);
-        TaskDocument currentTask = taskRepository
-                .findFirstByLawIdAndTaskStateInOrderByUpdatedAtDesc(
-                        lawId,
-                        UNFINISHED_TASK_STATES)
-                .orElse(null);
-        boolean hasHistory = version.getSeq() > 1
-                || law.getCurrentAnnotationVersionId() != null
-                || lawAuditRepository.existsByLawId(lawId)
-                || taskRepository.existsByLawId(lawId);
-        return LawResponseMapper.toViewDetail(law, version, currentTask, hasHistory);
     }
 
     LawDocument requireVisibleLaw(String lawId) {

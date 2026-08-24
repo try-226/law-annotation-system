@@ -88,11 +88,7 @@ class TaskPersistenceIntegrationTests {
         fieldConfigRepository = factory.getRepository(FieldConfigRepository.class);
         new TaskIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
         fieldConfigService = new FieldConfigService(fieldConfigRepository);
-        lawQueryService = new LawQueryService(
-                lawRepository,
-                contentVersionRepository,
-                lawAuditRepository,
-                taskRepository);
+        lawQueryService = new LawQueryService(lawRepository, contentVersionRepository);
         operationCoordinator = new LawOperationCoordinator(mongoTemplate);
         taskService = new TaskService(
                 taskRepository,

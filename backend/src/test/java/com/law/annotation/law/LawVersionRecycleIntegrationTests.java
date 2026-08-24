@@ -46,7 +46,6 @@ class LawVersionRecycleIntegrationTests {
     private static LawRepository lawRepository;
     private static ContentVersionRepository contentVersionRepository;
     private static LawAuditRepository lawAuditRepository;
-    private static TaskRepository detailTaskRepository;
     private static LawQueryService queryService;
 
     @BeforeAll
@@ -58,13 +57,8 @@ class LawVersionRecycleIntegrationTests {
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
         lawAuditRepository = factory.getRepository(LawAuditRepository.class);
-        detailTaskRepository = factory.getRepository(TaskRepository.class);
         new LawDomainIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
-        queryService = new LawQueryService(
-                lawRepository,
-                contentVersionRepository,
-                lawAuditRepository,
-                detailTaskRepository);
+        queryService = new LawQueryService(lawRepository, contentVersionRepository);
     }
 
     @AfterAll

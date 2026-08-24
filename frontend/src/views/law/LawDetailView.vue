@@ -1,15 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-import { apiErrorMessage, getLaw } from '../../api/laws'
+import {
+  addLawArticle,
+  apiErrorMessage,
+  deleteLaw,
+  deleteLawArticle,
+  getLaw,
+  updateLawArticle,
+  updateLawBase,
+  updateLawStructure,
+} from '../../api/laws'
+import { listTasks } from '../../api/tasks'
 import type {
-  LawDetailView,
+  LawBaseInfo,
+  LawDetail,
+  LawStructureInput,
   LawStructureNode,
-  LawTaskState,
   StructureNodeType,
   ValidityStatus,
 } from '../../types/law'
+import {
+  isUnfinishedTaskState,
+  TASK_STATE_LABELS,
+  TASK_TYPE_LABELS,
+  type TaskListItem,
+} from '../../types/task'
 
 interface TreeRow {
   node: LawStructureNode
@@ -18,12 +35,26 @@ interface TreeRow {
 }
 
 const route = useRoute()
+const router = useRouter()
 const lawId = String(route.params.lawId)
-const detail = ref<LawDetailView | null>(null)
+const detail = ref<LawDetail | null>(null)
+const tasks = ref<TaskListItem[]>([])
+const structures = ref<LawStructureInput[]>([])
 const loading = ref(true)
+const saving = ref('')
 const error = ref('')
+const message = ref('')
 const expandedNodeIds = ref<Set<string>>(new Set())
 const selectedNodeId = ref<string | null>(null)
+let manualNodeIndex = 0
+
+const base = reactive<LawBaseInfo>({
+  name: '',
+  issuingAuthority: '',
+  publicationDate: '',
+  validityStatus: 'ACTIVE',
+})
+const newArticle = reactive({ number: '', body: '', order: 0 })
 
 const validityLabels: Record<ValidityStatus, string> = {
   ACTIVE: '现行有效',
@@ -38,15 +69,25 @@ const structureTypeLabels: Record<StructureNodeType, string> = {
   SECTION: '节',
 }
 
-const taskStateLabels: Record<LawTaskState, string> = {
-  PENDING_ANNOTATION: '待标注',
-  ANNOTATING: '标注中',
-  PENDING_REVIEW: '待审核',
-  PARTIALLY_REJECTED: '部分驳回',
-  PENDING_REREVIEW: '待复审',
-  APPROVED: '已通过',
-  CANCELED: '已取消',
-}
+const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
+  { value: 'PART', label: '编' },
+  { value: 'CHAPTER', label: '章' },
+  { value: 'SECTION', label: '节' },
+]
+
+const currentTask = computed(() => (
+  tasks.value.find((task) => isUnfinishedTaskState(task.taskState)) ?? null
+))
+const latestApprovedTask = computed(() => (
+  tasks.value.find((task) => task.taskState === 'APPROVED') ?? null
+))
+const hasActiveTask = computed(() => currentTask.value !== null)
+const maintenanceDisabled = computed(() => hasActiveTask.value || Boolean(saving.value))
+const lockReason = computed(() => (
+  hasActiveTask.value
+    ? '该法律存在未结束任务，基础信息、结构、法条和删除操作均已锁定。'
+    : ''
+))
 
 const nodeById = computed(() => new Map(
   (detail.value?.structure ?? []).map((node) => [node.nodeId, node]),
@@ -94,8 +135,7 @@ const selectedArticleIds = computed<Set<string> | null>(() => {
   const collect = (nodeId: string) => {
     if (visited.has(nodeId)) return
     visited.add(nodeId)
-    const node = nodeById.value.get(nodeId)
-    node?.articleIds.forEach((articleId) => articleIds.add(articleId))
+    nodeById.value.get(nodeId)?.articleIds.forEach((articleId) => articleIds.add(articleId))
     for (const child of childNodes.value.get(nodeId) ?? []) collect(child.nodeId)
   }
   collect(selectedNodeId.value)
@@ -110,28 +150,125 @@ const displayedArticles = computed(() => {
 })
 
 const selectedStructureTitle = computed(() => (
-  selectedNodeId.value ? nodeById.value.get(selectedNodeId.value)?.title ?? '所选结构' : '全部法条'
+  selectedNodeId.value
+    ? nodeById.value.get(selectedNodeId.value)?.title ?? '所选结构'
+    : '全部法条'
 ))
 
 const displayStatus = computed(() => {
   if (!detail.value) return ''
-  if (detail.value.currentTask?.taskType === 'REVISION') return '修订中'
+  if (currentTask.value?.taskType === 'REVISION') return '修订中'
   if (detail.value.pendingRevision) return '待修订'
-  if (detail.value.currentTask) return taskStateLabels[detail.value.currentTask.taskState]
-  return detail.value.currentAnnotationVersion ? '已完成' : '未标注'
+  if (currentTask.value) return TASK_STATE_LABELS[currentTask.value.taskState]
+  if (latestApprovedTask.value) return '已完成'
+  return '未标注'
 })
+
+function sync(value: LawDetail, resetTree = false) {
+  detail.value = value
+  Object.assign(base, {
+    name: value.name,
+    issuingAuthority: value.issuingAuthority,
+    publicationDate: value.publicationDate,
+    validityStatus: value.validityStatus,
+  })
+  structures.value = value.structure.map((node) => ({
+    nodeId: node.nodeId,
+    type: node.type,
+    title: node.title,
+    parentNodeId: node.parentNodeId,
+    order: node.order,
+    articleRefs: [...node.articleIds],
+  }))
+  if (resetTree) {
+    expandedNodeIds.value = new Set(value.structure.map((node) => node.nodeId))
+  }
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const response = await getLaw(lawId)
-    detail.value = response
-    expandedNodeIds.value = new Set(response.structure.map((node) => node.nodeId))
+    const [law, taskPage] = await Promise.all([
+      getLaw(lawId),
+      listTasks({ lawId, page: 0, size: 100 }),
+    ])
+    tasks.value = taskPage.items
+    sync(law, true)
   } catch (caught) {
     error.value = apiErrorMessage(caught)
   } finally {
     loading.value = false
+  }
+}
+
+async function run(label: string, operation: () => Promise<LawDetail>) {
+  if (hasActiveTask.value) {
+    error.value = lockReason.value
+    return
+  }
+  saving.value = label
+  error.value = ''
+  message.value = ''
+  try {
+    sync(await operation())
+    message.value = '保存成功'
+  } catch (caught) {
+    error.value = apiErrorMessage(caught)
+  } finally {
+    saving.value = ''
+  }
+}
+
+function addStructureNode() {
+  if (maintenanceDisabled.value) return
+  manualNodeIndex += 1
+  structures.value.push({
+    nodeId: 'manual-node-' + Date.now() + '-' + manualNodeIndex,
+    type: 'CHAPTER',
+    title: '',
+    parentNodeId: null,
+    order: structures.value.length,
+    articleRefs: [],
+  })
+}
+
+function removeStructureNode(nodeId: string) {
+  if (maintenanceDisabled.value) return
+  structures.value = structures.value.filter((node) => node.nodeId !== nodeId)
+  structures.value.forEach((node) => {
+    if (node.parentNodeId === nodeId) node.parentNodeId = null
+  })
+}
+
+async function createArticle() {
+  await run('new-article', () => addLawArticle(lawId, newArticle))
+  if (!error.value) {
+    Object.assign(newArticle, {
+      number: '',
+      body: '',
+      order: detail.value?.articles.length ?? 0,
+    })
+  }
+}
+
+async function removeArticle(articleId: string) {
+  if (maintenanceDisabled.value) return
+  if (!window.confirm('确认删除该法条？系统会保留旧内容版本。')) return
+  await run('delete-' + articleId, () => deleteLawArticle(lawId, articleId))
+}
+
+async function removeLaw() {
+  if (maintenanceDisabled.value) return
+  if (!window.confirm('确认删除这部法律？有历史数据时将进入回收站。')) return
+  saving.value = 'delete-law'
+  error.value = ''
+  try {
+    await deleteLaw(lawId)
+    await router.push({ name: 'law-list' })
+  } catch (caught) {
+    error.value = apiErrorMessage(caught)
+    saving.value = ''
   }
 }
 
@@ -142,13 +279,30 @@ function toggleNode(nodeId: string) {
   expandedNodeIds.value = next
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(value))
+function articlePath(articleId: string) {
+  const candidates = (detail.value?.structure ?? [])
+    .filter((node) => node.articleIds.includes(articleId))
+    .map((node) => {
+      const titles: string[] = []
+      const visited = new Set<string>()
+      let current: LawStructureNode | undefined = node
+      while (current && !visited.has(current.nodeId)) {
+        visited.add(current.nodeId)
+        titles.unshift(current.title)
+        current = current.parentNodeId ? nodeById.value.get(current.parentNodeId) : undefined
+      }
+      return titles
+    })
+    .sort((left, right) => right.length - left.length)
+  return candidates[0]?.join(' / ') || '未归入章节'
 }
 
-onMounted(load)
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '--' : date.toLocaleString('zh-CN')
+}
+
+onMounted(() => { void load() })
 </script>
 
 <template>
@@ -157,32 +311,79 @@ onMounted(load)
       <div>
         <p class="eyebrow">法律条文管理 / 法律详情</p>
         <h1>{{ detail?.name || '法律详情' }}</h1>
-        <p class="muted">查看当前有效基础信息、章节结构、法条内容与业务状态</p>
+        <p class="muted">查看并维护基础信息、章节结构和当前法条内容</p>
       </div>
-      <RouterLink class="button secondary" :to="{ name: 'law-list' }">返回法律列表</RouterLink>
+      <div class="actions">
+        <RouterLink class="button secondary" :to="{ name: 'law-list' }">返回法律列表</RouterLink>
+        <button
+          class="danger"
+          type="button"
+          :disabled="maintenanceDisabled"
+          :title="lockReason"
+          @click="removeLaw"
+        >
+          {{ saving === 'delete-law' ? '删除中…' : '删除法律' }}
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="message" class="notice success">{{ message }}</p>
     <div v-if="loading" class="card empty">正在加载法律详情…</div>
 
     <template v-else-if="detail">
+      <p v-if="hasActiveTask" class="notice lock-notice">
+        <strong>法律维护已锁定：</strong>{{ lockReason }}
+      </p>
+      <p v-else-if="detail.pendingRevision" class="notice">
+        该法律已有正式标注版本，当前正文变更已记录为待修订。
+      </p>
+
       <div class="detail-summary">
         <span class="status-pill primary">{{ displayStatus }}</span>
         <span class="status-pill">{{ validityLabels[detail.validityStatus] }}</span>
-        <span class="status-pill">C{{ detail.currentContentVersion.seq }}</span>
+        <span class="status-pill">C{{ detail.currentContentVersionSeq }}</span>
         <span class="summary-time">更新于 {{ formatDateTime(detail.updatedAt) }}</span>
       </div>
 
       <section class="card" aria-labelledby="law-base-heading">
-        <h2 id="law-base-heading">基础信息</h2>
-        <dl class="definition-grid">
-          <div><dt>法律名称</dt><dd>{{ detail.name }}</dd></div>
-          <div><dt>发布机关</dt><dd>{{ detail.issuingAuthority }}</dd></div>
-          <div><dt>发布日期</dt><dd>{{ detail.publicationDate }}</dd></div>
-          <div><dt>效力状态</dt><dd>{{ validityLabels[detail.validityStatus] }}</dd></div>
-          <div><dt>法条数量</dt><dd>{{ detail.articles.length }} 条</dd></div>
-          <div><dt>更新时间</dt><dd>{{ formatDateTime(detail.updatedAt) }}</dd></div>
-        </dl>
+        <div class="row-head detail-section-heading">
+          <div>
+            <h2 id="law-base-heading">基础信息</h2>
+            <p class="muted">基础信息修改只写审计，不生成新的正文版本。</p>
+          </div>
+          <button
+            type="button"
+            :disabled="maintenanceDisabled"
+            :title="lockReason"
+            @click="run('base', () => updateLawBase(lawId, base))"
+          >
+            {{ saving === 'base' ? '保存中…' : '保存基础信息' }}
+          </button>
+        </div>
+        <div class="form-grid">
+          <label class="field">
+            <span>法律名称</span>
+            <input v-model="base.name" maxlength="100" :disabled="maintenanceDisabled" />
+          </label>
+          <label class="field">
+            <span>发布机关</span>
+            <input v-model="base.issuingAuthority" maxlength="100" :disabled="maintenanceDisabled" />
+          </label>
+          <label class="field">
+            <span>发布日期</span>
+            <input v-model="base.publicationDate" type="date" :disabled="maintenanceDisabled" />
+          </label>
+          <label class="field">
+            <span>效力状态</span>
+            <select v-model="base.validityStatus" :disabled="maintenanceDisabled">
+              <option value="ACTIVE">现行有效</option>
+              <option value="NOT_EFFECTIVE">尚未生效</option>
+              <option value="INVALID">失效</option>
+              <option value="REPEALED">已废止</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <div class="detail-columns">
@@ -210,7 +411,7 @@ onMounted(load)
                 v-for="row in treeRows"
                 :key="row.node.nodeId"
                 class="tree-row"
-                :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+                :style="{ paddingLeft: (row.depth * 18 + 8) + 'px' }"
               >
                 <button
                   v-if="row.hasChildren"
@@ -239,63 +440,218 @@ onMounted(load)
                 <strong>{{ selectedStructureTitle }}</strong>
                 <span>{{ displayedArticles.length }} 条</span>
               </div>
-              <div v-if="displayedArticles.length === 0" class="empty article-empty">该结构下暂无法条</div>
-              <template v-else>
-                <article
-                  v-for="article in displayedArticles"
-                  :key="article.articleId"
-                  class="article-card"
-                >
-                  <div class="article-heading">
-                    <h3>{{ article.number }}</h3>
-                    <span>{{ article.chapterPath.length ? article.chapterPath.join(' / ') : '未归入章节' }}</span>
-                  </div>
-                  <p>{{ article.body }}</p>
-                </article>
-              </template>
+              <div v-if="displayedArticles.length === 0" class="empty article-empty">
+                该结构下暂无法条
+              </div>
+              <article
+                v-for="article in displayedArticles"
+                v-else
+                :key="article.articleId"
+                class="article-card"
+              >
+                <div class="article-heading">
+                  <h3>{{ article.number }}</h3>
+                  <span>{{ articlePath(article.articleId) }}</span>
+                </div>
+                <div class="row-grid article-editor">
+                  <label class="field">
+                    <span>条号</span>
+                    <input v-model="article.number" maxlength="50" :disabled="maintenanceDisabled" />
+                  </label>
+                  <label class="field">
+                    <span>顺序</span>
+                    <input v-model.number="article.order" min="0" type="number" :disabled="maintenanceDisabled" />
+                  </label>
+                  <label class="field full">
+                    <span>正文</span>
+                    <textarea v-model="article.body" rows="5" :disabled="maintenanceDisabled"></textarea>
+                  </label>
+                </div>
+                <div class="section-actions">
+                  <button
+                    class="small"
+                    type="button"
+                    :disabled="maintenanceDisabled"
+                    :title="lockReason"
+                    @click="run('article-' + article.articleId, () => updateLawArticle(lawId, article.articleId, article))"
+                  >
+                    {{ saving === 'article-' + article.articleId ? '保存中…' : '保存法条' }}
+                  </button>
+                  <button
+                    class="danger small"
+                    type="button"
+                    :disabled="maintenanceDisabled"
+                    :title="lockReason"
+                    @click="removeArticle(article.articleId)"
+                  >
+                    删除
+                  </button>
+                </div>
+              </article>
             </div>
           </div>
+
+          <details class="maintenance-panel">
+            <summary>维护章节结构</summary>
+            <p class="muted">结构调整只写审计，不生成新的正文版本。</p>
+            <div class="section-actions">
+              <button
+                class="secondary small"
+                type="button"
+                :disabled="maintenanceDisabled"
+                :title="lockReason"
+                @click="addStructureNode"
+              >
+                新增结构
+              </button>
+            </div>
+            <p v-if="structures.length === 0" class="muted">当前没有编、章、节结构。</p>
+            <div v-for="node in structures" :key="node.nodeId" class="row-card">
+              <div class="row-head">
+                <strong>{{ node.title || '未命名结构' }}</strong>
+                <button
+                  class="danger small"
+                  type="button"
+                  :disabled="maintenanceDisabled"
+                  :title="lockReason"
+                  @click="removeStructureNode(node.nodeId)"
+                >
+                  移除
+                </button>
+              </div>
+              <div class="row-grid">
+                <label class="field">
+                  <span>类型</span>
+                  <select v-model="node.type" :disabled="maintenanceDisabled">
+                    <option v-for="item in structureTypes" :key="item.value" :value="item.value">
+                      {{ item.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>标题</span>
+                  <input v-model="node.title" maxlength="100" :disabled="maintenanceDisabled" />
+                </label>
+                <label class="field">
+                  <span>顺序</span>
+                  <input v-model.number="node.order" min="0" type="number" :disabled="maintenanceDisabled" />
+                </label>
+                <label class="field">
+                  <span>上级结构</span>
+                  <select v-model="node.parentNodeId" :disabled="maintenanceDisabled">
+                    <option :value="null">无</option>
+                    <option
+                      v-for="parent in structures.filter((item) => item.nodeId !== node.nodeId)"
+                      :key="parent.nodeId"
+                      :value="parent.nodeId"
+                    >
+                      {{ parent.title || parent.nodeId }}
+                    </option>
+                  </select>
+                </label>
+                <label class="field full">
+                  <span>包含法条（可多选）</span>
+                  <select v-model="node.articleRefs" multiple size="5" :disabled="maintenanceDisabled">
+                    <option
+                      v-for="article in detail.articles"
+                      :key="article.articleId"
+                      :value="article.articleId"
+                    >
+                      {{ article.number }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="section-actions">
+              <button
+                type="button"
+                :disabled="maintenanceDisabled"
+                :title="lockReason"
+                @click="run('structure', () => updateLawStructure(lawId, structures))"
+              >
+                {{ saving === 'structure' ? '保存中…' : '保存结构' }}
+              </button>
+            </div>
+          </details>
+
+          <details class="maintenance-panel">
+            <summary>新增法条</summary>
+            <p class="muted">新增法条会创建新的不可变正文版本。</p>
+            <div class="row-grid">
+              <label class="field">
+                <span>条号</span>
+                <input v-model="newArticle.number" maxlength="50" :disabled="maintenanceDisabled" />
+              </label>
+              <label class="field">
+                <span>顺序</span>
+                <input v-model.number="newArticle.order" min="0" type="number" :disabled="maintenanceDisabled" />
+              </label>
+              <label class="field full">
+                <span>正文</span>
+                <textarea v-model="newArticle.body" rows="5" :disabled="maintenanceDisabled"></textarea>
+              </label>
+            </div>
+            <div class="section-actions">
+              <button
+                type="button"
+                :disabled="maintenanceDisabled || !newArticle.number.trim() || !newArticle.body.trim()"
+                :title="lockReason"
+                @click="createArticle"
+              >
+                {{ saving === 'new-article' ? '添加中…' : '添加法条' }}
+              </button>
+            </div>
+          </details>
         </section>
 
         <aside class="detail-sidebar" aria-label="法律当前状态">
           <section class="card status-card">
             <h2>当前状态</h2>
             <dl class="status-list">
-              <div><dt>法律状态</dt><dd><span class="status-pill primary">{{ displayStatus }}</span></dd></div>
-              <div><dt>未结束任务</dt><dd>{{ detail.hasActiveTask ? '存在' : '不存在' }}</dd></div>
+              <div><dt>标注状态</dt><dd><span class="status-pill primary">{{ displayStatus }}</span></dd></div>
+              <div><dt>未结束任务</dt><dd>{{ hasActiveTask ? '存在' : '不存在' }}</dd></div>
               <div><dt>修订状态</dt><dd>{{ detail.pendingRevision ? '待修订' : '无需修订' }}</dd></div>
             </dl>
 
-            <div v-if="detail.currentTask" class="status-block">
+            <div v-if="currentTask" class="status-block">
               <h3>当前任务</h3>
-              <p><strong>{{ detail.currentTask.taskName || detail.currentTask.taskId }}</strong></p>
-              <p>{{ detail.currentTask.taskType === 'REVISION' ? '修订任务' : '普通任务' }} · {{ taskStateLabels[detail.currentTask.taskState] }}</p>
-              <p>标注员：{{ detail.currentTask.annotatorName }}</p>
+              <p><strong>{{ currentTask.taskName || currentTask.taskId }}</strong></p>
+              <p>{{ TASK_TYPE_LABELS[currentTask.taskType] }} · {{ TASK_STATE_LABELS[currentTask.taskState] }}</p>
+              <p>标注员：{{ currentTask.annotatorName }}</p>
+              <RouterLink
+                class="inline-link"
+                :to="{ name: 'admin-task-detail', params: { taskId: currentTask.taskId } }"
+              >
+                查看任务
+              </RouterLink>
+            </div>
+            <div v-else class="status-block">
+              <h3>当前任务</h3>
+              <p class="muted">当前没有未结束任务</p>
             </div>
 
             <div class="status-block">
-              <h3>正式标注版本</h3>
-              <p v-if="detail.currentAnnotationVersion">
-                {{ detail.currentAnnotationVersion.id }}
+              <h3>正式标注结果</h3>
+              <p v-if="latestApprovedTask">
+                最近通过任务：{{ latestApprovedTask.taskName || latestApprovedTask.taskId }}
               </p>
-              <p v-else class="muted">尚无正式标注版本</p>
+              <p class="muted">正式版本详情接口由后续审核结果 PR 提供。</p>
+              <button class="secondary small" type="button" disabled>查看正式结果（后续 PR）</button>
             </div>
 
             <div class="status-block">
               <h3>当前正文版本</h3>
-              <p><strong>C{{ detail.currentContentVersion.seq }}</strong></p>
-              <p class="version-id">{{ detail.currentContentVersion.id }}</p>
-              <p>生成于 {{ formatDateTime(detail.currentContentVersion.createdAt) }}</p>
+              <p><strong>C{{ detail.currentContentVersionSeq }}</strong></p>
+              <p class="version-id">{{ detail.currentContentVersionId }}</p>
             </div>
           </section>
 
           <section class="card reserved-card">
-            <h2>后续功能入口</h2>
-            <p class="muted">当前仅展示入口状态，本 PR 不提供历史详情或导出操作。</p>
-            <button type="button" disabled>
-              历史记录{{ detail.hasHistory ? '（存在记录）' : '（暂无记录）' }}
-            </button>
-            <button type="button" disabled>导出</button>
+            <h2>相关功能</h2>
+            <p class="muted">保留入口，不提前实现后续 PR 的历史详情和导出。</p>
+            <button type="button" disabled>历史记录（后续 PR）</button>
+            <button type="button" disabled>导出（后续 PR）</button>
           </section>
         </aside>
       </div>

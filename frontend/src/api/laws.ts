@@ -5,12 +5,12 @@ import type {
   ApiResponse,
   LawBaseInfo,
   LawDetail,
-  LawDetailView,
   LawImportArticle,
   LawImportPreview,
   LawListItem,
   LawStructureInput,
   PageResponse,
+  RecycleLawListItem,
 } from '../types/law'
 
 interface CsrfToken {
@@ -31,7 +31,14 @@ export async function listLaws(name: string, page = 0) {
 }
 
 export async function getLaw(lawId: string) {
-  const response = await request.get<ApiResponse<LawDetailView>>(`/laws/${lawId}`)
+  const response = await request.get<ApiResponse<LawDetail>>(`/laws/${lawId}`)
+  return response.data.data
+}
+
+export async function listRecycleLaws(name: string, page = 0) {
+  const response = await request.get<ApiResponse<PageResponse<RecycleLawListItem>>>('/laws/recycle', {
+    params: { name: name || undefined, page, size: 10 },
+  })
   return response.data.data
 }
 
@@ -110,6 +117,15 @@ export async function deleteLawArticle(lawId: string, articleId: string) {
 
 export async function deleteLaw(lawId: string) {
   await request.delete(`/laws/${lawId}`, await csrfConfig())
+}
+
+export async function restoreLaw(lawId: string) {
+  const response = await request.post<ApiResponse<LawDetail>>(
+    `/laws/${lawId}/restore`,
+    undefined,
+    await csrfConfig(),
+  )
+  return response.data.data
 }
 
 export function apiErrorMessage(error: unknown): string {

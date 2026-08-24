@@ -10,7 +10,5 @@ public interface LawAuditRepository extends Repository<LawAuditDocument, String>
 
     Optional<LawAuditDocument> findById(String id);
 
-    boolean existsByLawId(String lawId);
-
     List<LawAuditDocument> findByLawIdOrderByOperatedAtDesc(String lawId);
 }

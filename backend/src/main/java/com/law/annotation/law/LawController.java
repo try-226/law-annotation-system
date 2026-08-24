@@ -5,7 +5,6 @@ import com.law.annotation.common.response.ApiResponse;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.CreateLawArticleRequest;
 import com.law.annotation.law.dto.LawDetailResponse;
-import com.law.annotation.law.dto.LawDetailViewResponse;
 import com.law.annotation.law.dto.LawImportConfirmRequest;
 import com.law.annotation.law.dto.LawImportParseRequest;
 import com.law.annotation.law.dto.LawImportPreviewResponse;
@@ -83,8 +82,8 @@ public class LawController {
     }
 
     @GetMapping("/{lawId}")
-    public ApiResponse<LawDetailViewResponse> getLaw(@PathVariable String lawId) {
-        return ApiResponse.success(lawQueryService.getViewDetail(lawId));
+    public ApiResponse<LawDetailResponse> getLaw(@PathVariable String lawId) {
+        return ApiResponse.success(lawQueryService.getDetail(lawId));
     }
 
     @PatchMapping("/{lawId}/base")

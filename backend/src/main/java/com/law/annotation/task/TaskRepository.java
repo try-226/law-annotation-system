@@ -9,12 +9,6 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
 
     boolean existsByLawIdAndTaskStateIn(String lawId, Collection<TaskState> states);
 
-    boolean existsByLawId(String lawId);
-
-    Optional<TaskDocument> findFirstByLawIdAndTaskStateInOrderByUpdatedAtDesc(
-            String lawId,
-            Collection<TaskState> states);
-
     boolean existsByAnnotatorIdAndTaskStateIn(String annotatorId, Collection<TaskState> states);
 
     boolean existsByAnnotatorIdOrCreatedByOrCanceledBy(

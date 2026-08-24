@@ -21,7 +21,7 @@ import com.law.annotation.common.enums.Role;
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.GlobalExceptionHandler;
 import com.law.annotation.common.response.PageResponse;
-import com.law.annotation.law.dto.LawDetailViewResponse;
+import com.law.annotation.law.dto.LawDetailResponse;
 import com.law.annotation.user.UserDocument;
 import com.law.annotation.user.UserRepository;
 import java.time.Instant;
@@ -97,31 +97,25 @@ class LawControllerSecurityTests {
         UserDocument admin = activeUser("admin", Role.ADMIN);
         when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
         Instant now = Instant.parse("2026-08-19T00:00:00Z");
-        when(lawQueryService.getViewDetail("law-1")).thenReturn(new LawDetailViewResponse(
+        when(lawQueryService.getDetail("law-1")).thenReturn(new LawDetailResponse(
                 "law-1",
                 "测试法",
                 "制定机关",
                 LocalDate.of(2026, 8, 19),
                 ValidityStatus.ACTIVE,
-                now,
                 List.of(),
                 List.of(),
-                null,
-                false,
-                false,
-                null,
                 "content-1",
                 1,
-                new LawDetailViewResponse.ContentVersionReference("content-1", 1, now),
                 false,
+                now,
                 now));
 
         mockMvc.perform(get("/laws/law-1").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value("law-1"))
                 .andExpect(jsonPath("$.data.currentContentVersionId").value("content-1"))
-                .andExpect(jsonPath("$.data.currentContentVersionSeq").value(1))
-                .andExpect(jsonPath("$.data.currentContentVersion.seq").value(1));
+                .andExpect(jsonPath("$.data.currentContentVersionSeq").value(1));
     }
 
     @Test

@@ -3,9 +3,11 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import type { Role } from '../api/types'
 import BasicLayout from '../layouts/BasicLayout.vue'
 import { authState, restoreSession } from '../state/auth'
+import FieldConfigView from '../views/law/FieldConfigView.vue'
 import LawDetailView from '../views/law/LawDetailView.vue'
 import LawImportView from '../views/law/LawImportView.vue'
 import LawListView from '../views/law/LawListView.vue'
+import LawRecycleView from '../views/law/LawRecycleView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -67,6 +69,18 @@ const routes: RouteRecordRaw[] = [
         name: 'law-import',
         component: LawImportView,
         meta: { roles: ['ADMIN'], title: '导入法律' },
+      },
+      {
+        path: 'laws/field-config',
+        name: 'field-config',
+        component: FieldConfigView,
+        meta: { roles: ['ADMIN'], title: '字段配置' },
+      },
+      {
+        path: 'laws/recycle',
+        name: 'law-recycle',
+        component: LawRecycleView,
+        meta: { roles: ['ADMIN'], title: '法律回收站' },
       },
       {
         path: 'laws/:lawId',
