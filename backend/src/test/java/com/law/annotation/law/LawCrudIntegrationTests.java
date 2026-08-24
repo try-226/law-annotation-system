@@ -6,12 +6,15 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
+import com.law.annotation.common.enums.TaskState;
+import com.law.annotation.common.enums.TaskType;
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.CreateLawArticleRequest;
 import com.law.annotation.law.dto.LawBaseInfoInput;
 import com.law.annotation.law.dto.LawDetailResponse;
+import com.law.annotation.law.dto.LawDetailViewResponse;
 import com.law.annotation.law.dto.LawImportArticleInput;
 import com.law.annotation.law.dto.LawImportConfirmRequest;
 import com.law.annotation.law.dto.LawListItemResponse;
@@ -21,6 +24,8 @@ import com.law.annotation.law.dto.UpdateLawBaseRequest;
 import com.law.annotation.law.dto.UpdateLawStructureRequest;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
+import com.law.annotation.task.TaskDocument;
+import com.law.annotation.task.TaskRepository;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import de.bwaldvogel.mongo.MongoServer;
@@ -49,6 +54,7 @@ class LawCrudIntegrationTests {
     private static LawRepository lawRepository;
     private static ContentVersionRepository contentVersionRepository;
     private static LawAuditRepository lawAuditRepository;
+    private static TaskRepository taskRepository;
     private static LawQueryService queryService;
 
     @BeforeAll
@@ -60,8 +66,13 @@ class LawCrudIntegrationTests {
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
         lawAuditRepository = factory.getRepository(LawAuditRepository.class);
+        taskRepository = factory.getRepository(TaskRepository.class);
         new LawDomainIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
-        queryService = new LawQueryService(lawRepository, contentVersionRepository);
+        queryService = new LawQueryService(
+                lawRepository,
+                contentVersionRepository,
+                lawAuditRepository,
+                taskRepository);
     }
 
     @AfterAll
@@ -75,6 +86,7 @@ class LawCrudIntegrationTests {
         mongoTemplate.remove(new Query(), LawDocument.class);
         mongoTemplate.remove(new Query(), ContentVersionDocument.class);
         mongoTemplate.remove(new Query(), LawAuditDocument.class);
+        mongoTemplate.remove(new Query(), TaskDocument.class);
     }
 
     @Test
@@ -118,16 +130,105 @@ class LawCrudIntegrationTests {
     @Test
     void detailReadsArticlesFromCurrentContentVersionAndMissingIsNotFound() {
         insertLaw("law-1", "测试法", Instant.parse("2026-08-19T01:00:00Z"), 2, false);
+        insertLaw("deleted-law", "已删除详情测试法", Instant.parse("2026-08-19T02:00:00Z"), 1, true);
 
         LawDetailResponse detail = queryService.getDetail("law-1");
+        LawDetailViewResponse viewDetail = queryService.getViewDetail("law-1");
 
         assertThat(detail.currentContentVersionId()).isEqualTo("content-law-1");
         assertThat(detail.currentContentVersionSeq()).isEqualTo(1);
         assertThat(detail.articles()).hasSize(2);
-        assertThatThrownBy(() -> queryService.getDetail("missing"))
+        assertThat(viewDetail.currentContentVersion().id()).isEqualTo("content-law-1");
+        assertThat(viewDetail.currentContentVersion().seq()).isEqualTo(1);
+        assertThat(viewDetail.articles()).hasSize(2);
+        assertThat(viewDetail.hasActiveTask()).isFalse();
+        assertThat(viewDetail.hasHistory()).isFalse();
+        assertThatThrownBy(() -> queryService.getViewDetail("missing"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(LawErrorCodes.NOT_FOUND);
+        assertThatThrownBy(() -> queryService.getViewDetail("deleted-law"))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.NOT_FOUND);
+    }
+
+    @Test
+    void viewDetailAggregatesStructurePathsCurrentTaskAndVersionStatus() {
+        Instant now = Instant.parse("2026-08-19T03:00:00Z");
+        ArticleSnapshot firstArticle = new ArticleSnapshot(
+                "article-1", "第一条", "第一条正文", 0);
+        ArticleSnapshot secondArticle = new ArticleSnapshot(
+                "article-2", "第二条", "第二条正文", 1);
+        ContentVersionDocument version = new ContentVersionDocument(
+                "content-law-detail",
+                "law-detail",
+                2,
+                List.of(firstArticle, secondArticle),
+                "admin-1",
+                now.minusSeconds(120));
+        contentVersionRepository.insert(version);
+        LawDocument law = new LawDocument(
+                "law-detail",
+                "详情聚合测试法",
+                LawDomainRules.normalizeLawName("详情聚合测试法"),
+                "制定机关",
+                LocalDate.of(2026, 8, 19),
+                ValidityStatus.ACTIVE,
+                List.of(
+                        new LawStructureNode(
+                                "part-1",
+                                LawStructureNodeType.PART,
+                                "第一编 总则",
+                                null,
+                                0,
+                                List.of()),
+                        new LawStructureNode(
+                                "chapter-1",
+                                LawStructureNodeType.CHAPTER,
+                                "第一章 基本规定",
+                                "part-1",
+                                0,
+                                List.of()),
+                        new LawStructureNode(
+                                "section-1",
+                                LawStructureNodeType.SECTION,
+                                "第一节 适用范围",
+                                "chapter-1",
+                                0,
+                                List.of(firstArticle.getArticleId()))),
+                null,
+                version.getId(),
+                "annotation-2",
+                true,
+                PendingChangeSet.empty(),
+                now.minusSeconds(3600),
+                now);
+        lawRepository.insert(law);
+        mongoTemplate.getCollection("tasks").insertOne(new Document()
+                .append("_id", "task-current")
+                .append("taskType", TaskType.REVISION.name())
+                .append("taskState", TaskState.ANNOTATING.name())
+                .append("lawId", law.getId())
+                .append("annotatorId", "annotator-1")
+                .append("annotatorNameSnapshot", "测试标注员")
+                .append("taskName", "详情测试修订任务")
+                .append("createdAt", Date.from(now.minusSeconds(300)))
+                .append("updatedAt", Date.from(now.minusSeconds(60))));
+
+        LawDetailViewResponse detail = queryService.getViewDetail(law.getId());
+
+        assertThat(detail.hasActiveTask()).isTrue();
+        assertThat(detail.currentTask().taskId()).isEqualTo("task-current");
+        assertThat(detail.currentTask().taskState()).isEqualTo(TaskState.ANNOTATING);
+        assertThat(detail.pendingRevision()).isTrue();
+        assertThat(detail.currentAnnotationVersion().id()).isEqualTo("annotation-2");
+        assertThat(detail.currentContentVersion().id()).isEqualTo(version.getId());
+        assertThat(detail.currentContentVersion().seq()).isEqualTo(2);
+        assertThat(detail.hasHistory()).isTrue();
+        assertThat(detail.articles().getFirst().chapterPath())
+                .containsExactly("第一编 总则", "第一章 基本规定", "第一节 适用范围");
+        assertThat(detail.articles().get(1).chapterPath()).isEmpty();
     }
 
     @Test

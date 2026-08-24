@@ -5,6 +5,7 @@ import type {
   ApiResponse,
   LawBaseInfo,
   LawDetail,
+  LawDetailView,
   LawImportArticle,
   LawImportPreview,
   LawListItem,
@@ -30,7 +31,7 @@ export async function listLaws(name: string, page = 0) {
 }
 
 export async function getLaw(lawId: string) {
-  const response = await request.get<ApiResponse<LawDetail>>(`/laws/${lawId}`)
+  const response = await request.get<ApiResponse<LawDetailView>>(`/laws/${lawId}`)
   return response.data.data
 }
 

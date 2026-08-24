@@ -47,12 +47,71 @@ th { color: #64748b; font-size: 13px; }
 .empty { padding: 36px; text-align: center; color: #64748b; }
 .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e8eef7; color: #21436b; font-size: 12px; }
 .issue-list { margin: 0; padding-left: 20px; color: #9a3412; }
+.eyebrow { margin: 0 0 7px; color: #2868c7; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.detail-summary { display: flex; align-items: center; gap: 8px; margin: -8px 0 20px; }
+.status-pill { display: inline-flex; align-items: center; border-radius: 999px; background: #eef2f7; color: #475569; padding: 5px 10px; font-size: 12px; font-weight: 600; }
+.status-pill.primary { background: #e8f1ff; color: #1756a9; }
+.summary-time { margin-left: auto; color: #64748b; font-size: 13px; }
+.definition-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; border: 1px solid #e5eaf0; border-radius: 9px; overflow: hidden; }
+.definition-grid div { min-width: 0; padding: 16px 18px; border-right: 1px solid #e5eaf0; border-bottom: 1px solid #e5eaf0; }
+.definition-grid div:nth-child(3n) { border-right: 0; }
+.definition-grid div:nth-last-child(-n + 3) { border-bottom: 0; }
+.definition-grid dt { margin-bottom: 7px; color: #718096; font-size: 12px; }
+.definition-grid dd { margin: 0; color: #1f2937; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.detail-columns { display: grid; grid-template-columns: minmax(0, 1fr) 290px; align-items: start; gap: 20px; }
+.detail-section-heading h2 { margin-bottom: 6px; }
+.law-content-card { min-width: 0; }
+.law-content-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 520px; border: 1px solid #e2e8f0; border-radius: 9px; overflow: hidden; }
+.structure-tree { min-width: 0; padding: 12px 8px; border-right: 1px solid #e2e8f0; background: #f8fafc; }
+.tree-all, .tree-node { border: 0; background: transparent; color: #334155; text-align: left; }
+.tree-all { display: block; width: 100%; justify-content: flex-start; padding: 9px 10px; font-weight: 600; }
+.tree-all:hover, .tree-node:hover, .tree-all.selected, .tree-node.selected { background: #e6effc; color: #1859aa; }
+.tree-row { display: flex; align-items: center; min-width: 0; }
+.tree-toggle { flex: 0 0 24px; width: 24px; height: 30px; border: 0; background: transparent; color: #64748b; padding: 0; }
+.tree-toggle:hover { background: transparent; color: #1859aa; }
+.tree-spacer { flex: 0 0 24px; }
+.tree-node { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: flex-start; gap: 6px; padding: 8px 6px; }
+.tree-node small { flex: 0 0 auto; border-radius: 4px; background: #e7ebf0; color: #64748b; padding: 2px 4px; font-size: 10px; }
+.tree-node span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-empty { margin: 14px 10px; color: #94a3b8; font-size: 13px; }
+.article-list { min-width: 0; padding: 18px; background: #fff; }
+.article-list-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: #334155; }
+.article-list-heading span { color: #64748b; font-size: 13px; }
+.article-card { margin-bottom: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 17px 18px; }
+.article-card:last-child { margin-bottom: 0; }
+.article-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.article-heading h3 { margin: 0; color: #1f3d63; font-size: 16px; }
+.article-heading span { color: #7b8796; font-size: 12px; text-align: right; }
+.article-card > p { margin: 0; color: #334155; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.article-empty { border: 1px dashed #d7dee8; border-radius: 8px; }
+.detail-sidebar { min-width: 0; }
+.status-card { position: sticky; top: 94px; }
+.status-list { margin: 0; }
+.status-list div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #edf0f4; }
+.status-list dt { color: #64748b; font-size: 13px; }
+.status-list dd { margin: 0; color: #27364a; font-size: 13px; font-weight: 600; }
+.status-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e5e7eb; }
+.status-block h3 { margin: 0 0 9px; color: #475569; font-size: 13px; }
+.status-block p { margin: 5px 0; color: #465568; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.version-id { color: #7b8796 !important; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px !important; }
+.reserved-card { display: grid; gap: 10px; }
+.reserved-card h2 { margin-bottom: 2px; }
+.reserved-card button { width: 100%; }
 @media (max-width: 760px) {
   .law-page { padding: 22px 14px 48px; }
   .page-title, .toolbar { align-items: stretch; flex-direction: column; }
   .field-config-heading { align-items: stretch; flex-direction: column; }
   .config-note { align-self: flex-start; }
   .field-config-grid, .form-grid, .row-grid { grid-template-columns: 1fr; }
+  .definition-grid, .detail-columns, .law-content-layout { grid-template-columns: 1fr; }
+  .definition-grid div, .definition-grid div:nth-child(3n), .definition-grid div:nth-last-child(-n + 3) { border-right: 0; border-bottom: 1px solid #e5eaf0; }
+  .definition-grid div:last-child { border-bottom: 0; }
+  .structure-tree { border-right: 0; border-bottom: 1px solid #e2e8f0; }
+  .detail-summary { align-items: flex-start; flex-wrap: wrap; }
+  .summary-time { width: 100%; margin-left: 0; }
+  .article-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .article-heading span { text-align: left; }
+  .status-card { position: static; }
   .full { grid-column: auto; }
   table { display: block; overflow-x: auto; }
 }

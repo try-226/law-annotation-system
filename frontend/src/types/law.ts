@@ -1,5 +1,14 @@
 export type ValidityStatus = 'ACTIVE' | 'NOT_EFFECTIVE' | 'INVALID' | 'REPEALED'
 export type StructureNodeType = 'PART' | 'CHAPTER' | 'SECTION'
+export type LawTaskType = 'ORDINARY' | 'REVISION'
+export type LawTaskState =
+  | 'PENDING_ANNOTATION'
+  | 'ANNOTATING'
+  | 'PENDING_REVIEW'
+  | 'PARTIALLY_REJECTED'
+  | 'PENDING_REREVIEW'
+  | 'APPROVED'
+  | 'CANCELED'
 
 export interface ApiError {
   code: string
@@ -79,6 +88,10 @@ export interface LawArticle {
   order: number
 }
 
+export interface LawDetailArticle extends LawArticle {
+  chapterPath: string[]
+}
+
 export interface LawStructureNode {
   nodeId: string
   type: StructureNodeType
@@ -101,4 +114,33 @@ export interface LawDetail {
   pendingRevision: boolean
   createdAt: string
   updatedAt: string
+}
+
+export interface LawCurrentTask {
+  taskId: string
+  taskType: LawTaskType
+  taskState: LawTaskState
+  taskName: string | null
+  annotatorId: string
+  annotatorName: string
+}
+
+export interface LawDetailView {
+  id: string
+  name: string
+  issuingAuthority: string
+  publicationDate: string
+  validityStatus: ValidityStatus
+  updatedAt: string
+  structure: LawStructureNode[]
+  articles: LawDetailArticle[]
+  currentTask: LawCurrentTask | null
+  hasActiveTask: boolean
+  pendingRevision: boolean
+  currentAnnotationVersion: { id: string } | null
+  currentContentVersionId: string
+  currentContentVersionSeq: number
+  currentContentVersion: { id: string; seq: number; createdAt: string }
+  hasHistory: boolean
+  createdAt: string
 }
