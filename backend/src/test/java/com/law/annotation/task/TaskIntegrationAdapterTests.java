@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.law.annotation.common.exception.ApiException;
+import com.law.annotation.law.LawErrorCodes;
 import org.junit.jupiter.api.Test;
 
 class TaskIntegrationAdapterTests {
@@ -20,7 +21,7 @@ class TaskIntegrationAdapterTests {
         assertThatThrownBy(() -> guard.assertMutationAllowed("law-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo("LAW.ACTIVE_TASK_EXISTS");
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS);
     }
 
     @Test

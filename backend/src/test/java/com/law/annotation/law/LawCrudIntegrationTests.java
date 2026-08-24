@@ -2,6 +2,9 @@ package com.law.annotation.law;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
@@ -24,7 +27,9 @@ import de.bwaldvogel.mongo.MongoServer;
 import de.bwaldvogel.mongo.backend.memory.MemoryBackend;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.List;
+import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -386,6 +391,150 @@ class LawCrudIntegrationTests {
     }
 
     @Test
+    void staleDeleteArticleCannotOverwriteConcurrentStructureUpdate() {
+        InitialLawCreation creation = createLaw("语义并发保护测试法");
+        String lawId = creation.law().getId();
+        LawMaintenanceService service = maintenanceService(List.of());
+        LawDetailResponse afterAdd = service.addArticle(
+                lawId,
+                new CreateLawArticleRequest("第二条", "第二条正文", 1),
+                "admin-1");
+        String firstId = afterAdd.articles().getFirst().articleId();
+        String secondId = afterAdd.articles().get(1).articleId();
+        service.updateStructure(
+                lawId,
+                new UpdateLawStructureRequest(List.of(new LawStructureInput(
+                        "chapter-1",
+                        LawStructureNodeType.CHAPTER,
+                        "第一章 原结构",
+                        null,
+                        0,
+                        List.of(firstId, secondId)))),
+                "admin-1");
+
+        LawDocument staleLaw = lawRepository.findById(lawId).orElseThrow();
+        List<LawStructureNode> concurrentStructure = List.of(new LawStructureNode(
+                "chapter-1",
+                LawStructureNodeType.CHAPTER,
+                "第一章 并发更新后的结构",
+                null,
+                0,
+                List.of(firstId, secondId)));
+        ContentVersionRepository insertingRepository = mock(ContentVersionRepository.class);
+        doAnswer(invocation -> {
+            ContentVersionDocument next = invocation.getArgument(0);
+            mongoTemplate.updateFirst(
+                    Query.query(Criteria.where("_id").is(lawId)),
+                    new Update()
+                            .set("structure", concurrentStructure)
+                            .set("updatedAt", staleLaw.getUpdatedAt().plusSeconds(1)),
+                    LawDocument.class);
+            return contentVersionRepository.insert(next);
+        }).when(insertingRepository).insert(any(ContentVersionDocument.class));
+        LawMaintenanceService staleService = new LawMaintenanceService(
+                lawRepository,
+                insertingRepository,
+                lawAuditRepository,
+                queryService,
+                mongoTemplate,
+                List.of(),
+                new LawOperationCoordinator(mongoTemplate));
+
+        assertThatThrownBy(() -> staleService.deleteArticle(
+                        lawId,
+                        secondId,
+                        "admin-1"))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.VERSION_CONFLICT);
+
+        LawDocument stored = lawRepository.findById(lawId).orElseThrow();
+        assertThat(stored.getStructure()).singleElement()
+                .extracting(LawStructureNode::getTitle)
+                .isEqualTo("第一章 并发更新后的结构");
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(lawId)).hasSize(2);
+        assertThat(lawAuditRepository.findByLawIdOrderByOperatedAtDesc(lawId)).hasSize(1);
+    }
+
+    @Test
+    void operationTokenIsCreatedAndReleasedAfterSuccess() {
+        InitialLawCreation creation = createLaw("操作令牌成功释放测试法");
+        String lawId = creation.law().getId();
+        LawOperationCoordinator coordinator = new LawOperationCoordinator(mongoTemplate);
+
+        coordinator.withVisibleLaw(
+                lawId,
+                () -> new IllegalStateException("法律操作冲突"),
+                token -> {
+                    Document claimed = rawLaw(lawId);
+                    assertThat(claimed.getString(LawOperationCoordinator.OPERATION_TOKEN_FIELD))
+                            .isEqualTo(token);
+                    assertThat(claimed.getDate(LawOperationCoordinator.OPERATION_EXPIRES_AT_FIELD))
+                            .isAfter(new Date());
+                    return null;
+                });
+
+        assertThat(rawLaw(lawId)).doesNotContainKeys(
+                LawOperationCoordinator.OPERATION_TOKEN_FIELD,
+                LawOperationCoordinator.OPERATION_EXPIRES_AT_FIELD);
+    }
+
+    @Test
+    void operationTokenIsReleasedAfterBusinessException() {
+        InitialLawCreation creation = createLaw("操作令牌异常释放测试法");
+        String lawId = creation.law().getId();
+        LawOperationCoordinator coordinator = new LawOperationCoordinator(mongoTemplate);
+
+        assertThatThrownBy(() -> coordinator.withVisibleLaw(
+                        lawId,
+                        () -> new IllegalStateException("法律操作冲突"),
+                        token -> {
+                            assertThat(rawLaw(lawId).getString(
+                                    LawOperationCoordinator.OPERATION_TOKEN_FIELD))
+                                    .isEqualTo(token);
+                            throw new ApiException(
+                                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                                    LawErrorCodes.VALIDATION_FAILED,
+                                    "模拟业务异常");
+                        }))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.VALIDATION_FAILED);
+        assertThat(rawLaw(lawId)).doesNotContainKeys(
+                LawOperationCoordinator.OPERATION_TOKEN_FIELD,
+                LawOperationCoordinator.OPERATION_EXPIRES_AT_FIELD);
+    }
+
+    @Test
+    void expiredOperationTokenCanBeRecoveredByANewMutation() {
+        InitialLawCreation creation = createLaw("过期操作令牌恢复测试法");
+        String lawId = creation.law().getId();
+        mongoTemplate.getCollection("laws").updateOne(
+                new Document("_id", lawId),
+                new Document("$set", new Document(
+                        LawOperationCoordinator.OPERATION_TOKEN_FIELD,
+                        "stale-token").append(
+                        LawOperationCoordinator.OPERATION_EXPIRES_AT_FIELD,
+                        Date.from(Instant.now().minusSeconds(1)))));
+        LawOperationCoordinator coordinator = new LawOperationCoordinator(mongoTemplate);
+
+        coordinator.withVisibleLaw(
+                lawId,
+                () -> new IllegalStateException("法律操作冲突"),
+                token -> {
+                    assertThat(token).isNotEqualTo("stale-token");
+                    assertThat(rawLaw(lawId).getString(
+                            LawOperationCoordinator.OPERATION_TOKEN_FIELD))
+                            .isEqualTo(token);
+                    return null;
+                });
+
+        assertThat(rawLaw(lawId)).doesNotContainKeys(
+                LawOperationCoordinator.OPERATION_TOKEN_FIELD,
+                LawOperationCoordinator.OPERATION_EXPIRES_AT_FIELD);
+    }
+
+    @Test
     void duplicateNumberMutationIsRejectedWithoutNewVersion() {
         InitialLawCreation creation = createLaw("重复条号测试法");
         LawMaintenanceService service = maintenanceService(List.of());
@@ -402,17 +551,24 @@ class LawCrudIntegrationTests {
     }
 
     @Test
-    void deleteIsConservativeSoftDeleteAndPreservesVersionsAndNameReservation() {
+    void deleteWithVersionHistorySoftDeletesAndPreservesVersionsAndNameReservation() {
         InitialLawCreation creation = createLaw("删除测试法");
-        LawMaintenanceService service = maintenanceService(List.of());
+        LawMaintenanceService maintenanceService = maintenanceService(List.of());
+        maintenanceService.updateArticle(
+                creation.law().getId(),
+                creation.contentVersion().getSemanticArticlesSnapshot().getFirst().getArticleId(),
+                new UpdateLawArticleRequest("第一条", "形成历史的新正文", 0),
+                "admin-1");
+        LawRecycleService recycleService = recycleService(List.of());
 
-        service.deleteLaw(creation.law().getId());
+        recycleService.deleteLaw(creation.law().getId());
 
         LawDocument deleted = lawRepository.findById(creation.law().getId()).orElseThrow();
         assertThat(deleted.getDeletedAt()).isNotNull();
+        assertThat(deleted.isDeleted()).isTrue();
         assertThat(lawRepository.existsByNormalizedName("删除测试法")).isTrue();
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
-                .hasSize(1);
+                .hasSize(2);
         assertThat(queryService.list(null, 0, 10).items()).isEmpty();
     }
 
@@ -422,7 +578,7 @@ class LawCrudIntegrationTests {
         LawMutationGuard guard = lawId -> {
             throw new ApiException(
                     org.springframework.http.HttpStatus.CONFLICT,
-                    "LAW.ACTIVE_TASK_EXISTS",
+                    LawErrorCodes.ACTIVE_TASK_EXISTS,
                     "存在未结束任务");
         };
         LawMaintenanceService service = maintenanceService(List.of(guard));
@@ -434,7 +590,7 @@ class LawCrudIntegrationTests {
                         "admin-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo("LAW.ACTIVE_TASK_EXISTS");
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS);
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
                 .hasSize(1);
     }
@@ -479,7 +635,17 @@ class LawCrudIntegrationTests {
                 lawAuditRepository,
                 queryService,
                 mongoTemplate,
-                guards);
+                guards,
+                new LawOperationCoordinator(mongoTemplate));
+    }
+
+    private static LawRecycleService recycleService(List<LawMutationGuard> guards) {
+        return new LawRecycleService(
+                lawRepository,
+                queryService,
+                mongoTemplate,
+                guards,
+                new LawOperationCoordinator(mongoTemplate));
     }
 
     private static InitialLawCreation createLaw(String name) {
@@ -492,6 +658,12 @@ class LawCrudIntegrationTests {
                         List.of(),
                         List.of(new NewArticleDraft("第一条", "旧正文", 0)),
                         "admin-1");
+    }
+
+    private static Document rawLaw(String lawId) {
+        return mongoTemplate.getCollection("laws")
+                .find(new Document("_id", lawId))
+                .first();
     }
 
     private static void insertLaw(

@@ -3,6 +3,7 @@ package com.law.annotation.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import com.law.annotation.field.FieldConfigSnapshot;
 import com.law.annotation.field.FieldConfigSnapshotItem;
 import com.law.annotation.law.ArticleSnapshot;
 import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.LawOperationCoordinator;
 import com.law.annotation.law.LawRepository;
 import com.law.annotation.law.LawStructureNode;
 import com.law.annotation.law.LawStructureNodeType;
@@ -32,6 +34,7 @@ import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,18 +51,26 @@ class TaskServiceTests {
     private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
     private final FieldConfigService fieldConfigService = org.mockito.Mockito.mock(FieldConfigService.class);
     private final MongoTemplate mongoTemplate = org.mockito.Mockito.mock(MongoTemplate.class);
+    private final LawOperationCoordinator operationCoordinator =
+            org.mockito.Mockito.mock(LawOperationCoordinator.class);
 
     private TaskService service;
 
     @BeforeEach
     void setUp() {
+        when(operationCoordinator.withVisibleLaw(anyString(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Function<String, ?> operation = invocation.getArgument(2);
+                    return operation.apply("operation-token");
+                });
         service = new TaskService(
                 taskRepository,
                 lawRepository,
                 contentVersionRepository,
                 userRepository,
                 fieldConfigService,
-                mongoTemplate);
+                mongoTemplate,
+                operationCoordinator);
     }
 
     @Test

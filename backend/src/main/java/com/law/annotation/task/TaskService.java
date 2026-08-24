@@ -11,6 +11,7 @@ import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.field.FieldConfigService;
 import com.law.annotation.field.FieldConfigSnapshot;
 import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.LawOperationCoordinator;
 import com.law.annotation.law.LawRepository;
 import com.law.annotation.task.dto.TaskDetailResponse;
 import com.law.annotation.task.dto.TaskListItemResponse;
@@ -49,6 +50,7 @@ public class TaskService {
     private final UserRepository userRepository;
     private final FieldConfigService fieldConfigService;
     private final MongoTemplate mongoTemplate;
+    private final LawOperationCoordinator operationCoordinator;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -56,13 +58,15 @@ public class TaskService {
             ContentVersionRepository contentVersionRepository,
             UserRepository userRepository,
             FieldConfigService fieldConfigService,
-            MongoTemplate mongoTemplate) {
+            MongoTemplate mongoTemplate,
+            LawOperationCoordinator operationCoordinator) {
         this.taskRepository = taskRepository;
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
         this.userRepository = userRepository;
         this.fieldConfigService = fieldConfigService;
         this.mongoTemplate = mongoTemplate;
+        this.operationCoordinator = operationCoordinator;
     }
 
     public TaskDetailResponse createOrdinaryTask(
@@ -71,6 +75,27 @@ public class TaskService {
             String taskName,
             String remark,
             String createdBy) {
+        String validLawId = requireIdentifier(lawId, "lawId");
+        requireEligibleLaw(validLawId);
+        return operationCoordinator.withVisibleLaw(
+                validLawId,
+                TaskService::activeTaskConflict,
+                operationToken -> createOrdinaryTaskLocked(
+                        validLawId,
+                        annotatorId,
+                        taskName,
+                        remark,
+                        createdBy,
+                        operationToken));
+    }
+
+    private TaskDetailResponse createOrdinaryTaskLocked(
+            String lawId,
+            String annotatorId,
+            String taskName,
+            String remark,
+            String createdBy,
+            String operationToken) {
         String validLawId = requireIdentifier(lawId, "lawId");
         String validAnnotatorId = requireIdentifier(annotatorId, "annotatorId");
         String validCreator = requireIdentifier(createdBy, "createdBy");
@@ -114,6 +139,10 @@ public class TaskService {
                 null,
                 now,
                 now);
+        operationCoordinator.renewVisibleLaw(
+                validLawId,
+                operationToken,
+                TaskService::activeTaskConflict);
         try {
             return TaskDetailResponse.from(taskRepository.insert(task));
         } catch (DuplicateKeyException exception) {

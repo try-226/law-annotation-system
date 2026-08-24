@@ -5,6 +5,7 @@ import com.law.annotation.common.response.ErrorLocator;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.LawDetailResponse;
 import com.law.annotation.law.dto.LawListItemResponse;
+import com.law.annotation.law.dto.RecycleLawListItemResponse;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import java.util.List;
@@ -32,13 +33,7 @@ public class LawQueryService {
     }
 
     public PageResponse<LawListItemResponse> list(String name, int page, int size) {
-        if (page < 0 || size < 1 || size > 100) {
-            throw validation("page/size", "page不能小于0，size须为1至100");
-        }
-        PageRequest pageable = PageRequest.of(
-                page,
-                size,
-                Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("id")));
+        PageRequest pageable = pageable(page, size);
         String normalizedSearch = normalizeSearch(name);
         Page<LawDocument> laws = normalizedSearch == null
                 ? lawRepository.findByDeletedAtIsNull(pageable)
@@ -53,6 +48,36 @@ public class LawQueryService {
                 .collect(Collectors.toMap(ContentVersionDocument::getId, Function.identity()));
         List<LawListItemResponse> items = laws.getContent().stream()
                 .map(law -> LawResponseMapper.toListItem(law, requireCurrentVersion(law, versions)))
+                .toList();
+        return new PageResponse<>(
+                items,
+                laws.getNumber(),
+                laws.getSize(),
+                laws.getTotalElements(),
+                laws.getTotalPages());
+    }
+
+    public PageResponse<RecycleLawListItemResponse> listRecycle(
+            String name,
+            int page,
+            int size) {
+        PageRequest pageable = pageable(page, size);
+        String normalizedSearch = normalizeSearch(name);
+        Page<LawDocument> laws = normalizedSearch == null
+                ? lawRepository.findByDeletedAtIsNotNull(pageable)
+                : lawRepository.findByDeletedAtIsNotNullAndNormalizedNameContaining(
+                        normalizedSearch,
+                        pageable);
+        Map<String, ContentVersionDocument> versions = contentVersionRepository
+                .findByIdIn(laws.getContent().stream()
+                        .map(LawDocument::getCurrentContentVersionId)
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(ContentVersionDocument::getId, Function.identity()));
+        List<RecycleLawListItemResponse> items = laws.getContent().stream()
+                .map(law -> LawResponseMapper.toRecycleListItem(
+                        law,
+                        requireCurrentVersion(law, versions)))
                 .toList();
         return new PageResponse<>(
                 items,
@@ -78,6 +103,15 @@ public class LawQueryService {
                         HttpStatus.NOT_FOUND,
                         LawErrorCodes.NOT_FOUND,
                         "法律不存在"));
+    }
+
+    LawDocument requireDeletedLaw(String lawId) {
+        return lawRepository.findById(lawId)
+                .filter(law -> law.getDeletedAt() != null)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        LawErrorCodes.NOT_FOUND,
+                        "回收站中不存在该法律"));
     }
 
     ContentVersionDocument requireCurrentVersion(LawDocument law) {
@@ -107,6 +141,16 @@ public class LawQueryService {
             throw validation("name", "名称查询须为1至100个字符且不得包含控制字符");
         }
         return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static PageRequest pageable(int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw validation("page/size", "page不能小于0，size须为1至100");
+        }
+        return PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("id")));
     }
 
     private static ApiException validation(String path, String message) {

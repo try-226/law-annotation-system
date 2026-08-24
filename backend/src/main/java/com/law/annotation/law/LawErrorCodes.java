@@ -11,6 +11,7 @@ public final class LawErrorCodes {
     public static final String VERSION_CONFLICT = "LAW.VERSION_CONFLICT";
     public static final String VERSION_INCONSISTENT = "LAW.VERSION_INCONSISTENT";
     public static final String LAST_ARTICLE_REQUIRED = "LAW.LAST_ARTICLE_REQUIRED";
+    public static final String ACTIVE_TASK_EXISTS = "LAW.ACTIVE_TASK_EXISTS";
 
     private LawErrorCodes() {
     }

@@ -9,11 +9,19 @@ public interface LawRepository extends MongoRepository<LawDocument, String> {
 
     Optional<LawDocument> findByNormalizedName(String normalizedName);
 
+    Optional<LawDocument> findFirstByNormalizedNameAndIdNot(String normalizedName, String id);
+
     boolean existsByNormalizedName(String normalizedName);
 
     Page<LawDocument> findByDeletedAtIsNull(Pageable pageable);
 
     Page<LawDocument> findByDeletedAtIsNullAndNormalizedNameContaining(
+            String normalizedName,
+            Pageable pageable);
+
+    Page<LawDocument> findByDeletedAtIsNotNull(Pageable pageable);
+
+    Page<LawDocument> findByDeletedAtIsNotNullAndNormalizedNameContaining(
             String normalizedName,
             Pageable pageable);
 }

@@ -1,10 +1,13 @@
 package com.law.annotation.law;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -50,6 +54,9 @@ class LawControllerSecurityTests {
 
     @MockitoBean
     private LawMaintenanceService lawMaintenanceService;
+
+    @MockitoBean
+    private LawRecycleService lawRecycleService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -77,6 +84,64 @@ class LawControllerSecurityTests {
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray());
+    }
+
+    @Test
+    void adminCanAccessRecycleList() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        when(lawQueryService.listRecycle(null, 0, 10))
+                .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+
+        mockMvc.perform(get("/laws/recycle").with(user(UserPrincipal.from(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray());
+    }
+
+    @Test
+    void annotatorCannotDeleteOrRestoreLaw() throws Exception {
+        UserDocument annotator = activeUser("annotator", Role.ANNOTATOR);
+        when(userRepository.findById("annotator")).thenReturn(Optional.of(annotator));
+        mockMvc.perform(delete("/laws/law-1")
+                        .with(user(UserPrincipal.from(annotator)))
+                        .with(csrf().asHeader()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/laws/law-1/restore")
+                        .with(user(UserPrincipal.from(annotator)))
+                        .with(csrf().asHeader()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void corsPreflightRejectsRemovedWholeLawPut() throws Exception {
+        mockMvc.perform(options("/laws/law-1")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:5173")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deleteAndRestoreRequireCsrfForAdmin() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+
+        mockMvc.perform(delete("/laws/law-1")
+                        .with(user(UserPrincipal.from(admin))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/laws/law-1/restore")
+                        .with(user(UserPrincipal.from(admin))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/laws/law-1")
+                        .with(user(UserPrincipal.from(admin)))
+                        .with(csrf().asHeader()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/laws/law-1/restore")
+                        .with(user(UserPrincipal.from(admin)))
+                        .with(csrf().asHeader()))
+                .andExpect(status().isOk());
+        verify(lawRecycleService).deleteLaw("law-1");
+        verify(lawRecycleService).restoreLaw("law-1");
     }
 
     @Test

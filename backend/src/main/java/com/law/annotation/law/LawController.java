@@ -9,6 +9,7 @@ import com.law.annotation.law.dto.LawImportConfirmRequest;
 import com.law.annotation.law.dto.LawImportParseRequest;
 import com.law.annotation.law.dto.LawImportPreviewResponse;
 import com.law.annotation.law.dto.LawListItemResponse;
+import com.law.annotation.law.dto.RecycleLawListItemResponse;
 import com.law.annotation.law.dto.UpdateLawArticleRequest;
 import com.law.annotation.law.dto.UpdateLawBaseRequest;
 import com.law.annotation.law.dto.UpdateLawStructureRequest;
@@ -37,14 +38,17 @@ public class LawController {
     private final LawImportService lawImportService;
     private final LawQueryService lawQueryService;
     private final LawMaintenanceService lawMaintenanceService;
+    private final LawRecycleService lawRecycleService;
 
     public LawController(
             LawImportService lawImportService,
             LawQueryService lawQueryService,
-            LawMaintenanceService lawMaintenanceService) {
+            LawMaintenanceService lawMaintenanceService,
+            LawRecycleService lawRecycleService) {
         this.lawImportService = lawImportService;
         this.lawQueryService = lawQueryService;
         this.lawMaintenanceService = lawMaintenanceService;
+        this.lawRecycleService = lawRecycleService;
     }
 
     @PostMapping("/import/parse")
@@ -67,6 +71,14 @@ public class LawController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         return ApiResponse.success(lawQueryService.list(name, page, size));
+    }
+
+    @GetMapping("/recycle")
+    public ApiResponse<PageResponse<RecycleLawListItemResponse>> listRecycle(
+            @RequestParam(required = false) String name,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ApiResponse.success(lawQueryService.listRecycle(name, page, size));
     }
 
     @GetMapping("/{lawId}")
@@ -119,7 +131,12 @@ public class LawController {
 
     @DeleteMapping("/{lawId}")
     public ApiResponse<Void> deleteLaw(@PathVariable String lawId) {
-        lawMaintenanceService.deleteLaw(lawId);
+        lawRecycleService.deleteLaw(lawId);
         return ApiResponse.success(null);
+    }
+
+    @PostMapping("/{lawId}/restore")
+    public ApiResponse<LawDetailResponse> restoreLaw(@PathVariable String lawId) {
+        return ApiResponse.success(lawRecycleService.restoreLaw(lawId));
     }
 }

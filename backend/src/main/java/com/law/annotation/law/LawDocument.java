@@ -109,6 +109,10 @@ public class LawDocument {
         this.updatedAt = deletedAt;
     }
 
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
     public String getId() {
         return id;
     }
