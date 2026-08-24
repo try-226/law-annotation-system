@@ -179,6 +179,41 @@ public class TaskService {
         throw invalidTransition(current.getTaskState(), "开始");
     }
 
+    public TaskDetailResponse submitReview(String taskId, String actorId) {
+        String validTaskId = requireIdentifier(taskId, "taskId");
+        String validActorId = requireIdentifier(actorId, "actorId");
+        Instant now = Instant.now();
+        Query query = Query.query(Criteria.where("_id").is(validTaskId)
+                .and("taskType").is(TaskType.ORDINARY)
+                .and("taskState").is(TaskState.ANNOTATING)
+                .and("annotatorId").is(validActorId));
+        TaskDocument updated = mongoTemplate.findAndModify(
+                query,
+                new Update()
+                        .set("taskState", TaskState.PENDING_REVIEW)
+                        .set("updatedAt", now),
+                FindAndModifyOptions.options().returnNew(true),
+                TaskDocument.class);
+        if (updated != null) {
+            return TaskDetailResponse.from(updated);
+        }
+
+        TaskDocument current = requireTask(validTaskId);
+        if (!Objects.equals(current.getAnnotatorId(), validActorId)) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    TaskErrorCodes.NOT_ASSIGNEE,
+                    "只有任务标注员可以提交审核");
+        }
+        if (current.getTaskState() == TaskState.PENDING_REVIEW) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    TaskErrorCodes.ALREADY_SUBMITTED,
+                    "任务已经提交审核");
+        }
+        throw invalidTransition(current.getTaskState(), "提交审核");
+    }
+
     public TaskDetailResponse cancel(String taskId, String reason, UserPrincipal currentUser) {
         if (currentUser == null || currentUser.role() != Role.ADMIN) {
             throw forbidden();

@@ -14,6 +14,7 @@ public final class TaskErrorCodes {
     public static final String ANNOTATOR_ROLE_INVALID = "TASK.ANNOTATOR_ROLE_INVALID";
     public static final String INVALID_STATE_TRANSITION = "TASK.INVALID_STATE_TRANSITION";
     public static final String NOT_ASSIGNEE = "TASK.NOT_ASSIGNEE";
+    public static final String ALREADY_SUBMITTED = "TASK.ALREADY_SUBMITTED";
 
     private TaskErrorCodes() {
     }

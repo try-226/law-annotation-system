@@ -346,6 +346,40 @@ class TaskServiceTests {
     }
 
     @Test
+    void submitReviewUsesConditionalStateTransition() {
+        TaskDocument pendingReview = task(TaskState.PENDING_REVIEW, null);
+        when(mongoTemplate.findAndModify(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class)))
+                .thenReturn(pendingReview);
+
+        TaskDetailResponse response = service.submitReview("task-1", "annotator-1");
+
+        assertThat(response.taskState()).isEqualTo(TaskState.PENDING_REVIEW);
+        verify(mongoTemplate).findAndModify(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+    }
+
+    @Test
+    void repeatedSubmitReviewHasStableBusinessError() {
+        when(taskRepository.findById("task-1"))
+                .thenReturn(Optional.of(task(TaskState.PENDING_REVIEW, null)));
+
+        assertCode(
+                () -> service.submitReview("task-1", "annotator-1"),
+                TaskErrorCodes.ALREADY_SUBMITTED);
+    }
+
+    @Test
+    void onlyAssignedAnnotatorCanSubmitReview() {
+        when(taskRepository.findById("task-1"))
+                .thenReturn(Optional.of(task(TaskState.ANNOTATING, null)));
+
+        assertCode(
+                () -> service.submitReview("task-1", "other-annotator"),
+                TaskErrorCodes.NOT_ASSIGNEE);
+    }
+
+    @Test
     void pendingAndAnnotatingTasksCanBeCanceledWithTrimmedReason() {
         TaskDocument canceled = task(TaskState.CANCELED, "管理员取消");
         UserPrincipal admin = UserPrincipal.from(user("admin-1", Role.ADMIN, true));
