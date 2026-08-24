@@ -80,12 +80,13 @@ public class TaskService {
         return operationCoordinator.withVisibleLaw(
                 validLawId,
                 TaskService::activeTaskConflict,
-                ignored -> createOrdinaryTaskLocked(
+                operationToken -> createOrdinaryTaskLocked(
                         validLawId,
                         annotatorId,
                         taskName,
                         remark,
-                        createdBy));
+                        createdBy,
+                        operationToken));
     }
 
     private TaskDetailResponse createOrdinaryTaskLocked(
@@ -93,7 +94,8 @@ public class TaskService {
             String annotatorId,
             String taskName,
             String remark,
-            String createdBy) {
+            String createdBy,
+            String operationToken) {
         String validLawId = requireIdentifier(lawId, "lawId");
         String validAnnotatorId = requireIdentifier(annotatorId, "annotatorId");
         String validCreator = requireIdentifier(createdBy, "createdBy");
@@ -137,6 +139,10 @@ public class TaskService {
                 null,
                 now,
                 now);
+        operationCoordinator.renewVisibleLaw(
+                validLawId,
+                operationToken,
+                TaskService::activeTaskConflict);
         try {
             return TaskDetailResponse.from(taskRepository.insert(task));
         } catch (DuplicateKeyException exception) {

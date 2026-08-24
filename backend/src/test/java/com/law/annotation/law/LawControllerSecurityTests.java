@@ -1,8 +1,6 @@
 package com.law.annotation.law;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -11,8 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,8 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -58,9 +54,6 @@ class LawControllerSecurityTests {
 
     @MockitoBean
     private LawMaintenanceService lawMaintenanceService;
-
-    @MockitoBean
-    private LawUpdateService lawUpdateService;
 
     @MockitoBean
     private LawRecycleService lawRecycleService;
@@ -106,74 +99,9 @@ class LawControllerSecurityTests {
     }
 
     @Test
-    void wholeLawUpdateRequiresCsrfAndUsesAuthenticatedOperator() throws Exception {
-        UserDocument admin = activeUser("admin", Role.ADMIN);
-        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
-        String body = """
-                {
-                  "baseInfo": {
-                    "name": "测试法",
-                    "issuingAuthority": "制定机关",
-                    "publicationDate": "2026-08-19",
-                    "validityStatus": "ACTIVE"
-                  },
-                  "structure": [],
-                  "articles": [
-                    {
-                      "articleId": "article-1",
-                      "clientKey": "article-1",
-                      "number": "第一条",
-                      "body": "正文",
-                      "order": 0
-                    }
-                  ]
-                }
-                """;
-
-        mockMvc.perform(put("/laws/law-1")
-                        .with(user(UserPrincipal.from(admin)))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isForbidden());
-
-        mockMvc.perform(put("/laws/law-1")
-                        .with(user(UserPrincipal.from(admin)))
-                        .with(csrf().asHeader())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isOk());
-        verify(lawUpdateService).updateLaw(anyString(), any(), anyString());
-    }
-
-    @Test
-    void annotatorCannotUpdateDeleteOrRestoreLaw() throws Exception {
+    void annotatorCannotDeleteOrRestoreLaw() throws Exception {
         UserDocument annotator = activeUser("annotator", Role.ANNOTATOR);
         when(userRepository.findById("annotator")).thenReturn(Optional.of(annotator));
-        String body = """
-                {
-                  "baseInfo": {
-                    "name": "测试法",
-                    "issuingAuthority": "制定机关",
-                    "publicationDate": "2026-08-19",
-                    "validityStatus": "ACTIVE"
-                  },
-                  "structure": [],
-                  "articles": [{
-                    "articleId": "article-1",
-                    "clientKey": "article-1",
-                    "number": "第一条",
-                    "body": "正文",
-                    "order": 0
-                  }]
-                }
-                """;
-
-        mockMvc.perform(put("/laws/law-1")
-                        .with(user(UserPrincipal.from(annotator)))
-                        .with(csrf().asHeader())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isForbidden());
         mockMvc.perform(delete("/laws/law-1")
                         .with(user(UserPrincipal.from(annotator)))
                         .with(csrf().asHeader()))
@@ -185,14 +113,11 @@ class LawControllerSecurityTests {
     }
 
     @Test
-    void corsPreflightAllowsWholeLawPut() throws Exception {
+    void corsPreflightRejectsRemovedWholeLawPut() throws Exception {
         mockMvc.perform(options("/laws/law-1")
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT"))
-                .andExpect(status().isOk())
-                .andExpect(header().string(
-                        HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
-                        containsString("PUT")));
+                .andExpect(status().isForbidden());
     }
 
     @Test

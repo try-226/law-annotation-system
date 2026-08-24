@@ -9,10 +9,11 @@ import static org.mockito.ArgumentMatchers.eq;
 
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
-import com.law.annotation.law.dto.LawBaseInfoInput;
+import com.law.annotation.law.dto.CreateLawArticleRequest;
 import com.law.annotation.law.dto.LawDetailResponse;
-import com.law.annotation.law.dto.UpdateLawArticleInput;
-import com.law.annotation.law.dto.UpdateLawRequest;
+import com.law.annotation.law.dto.UpdateLawArticleRequest;
+import com.law.annotation.law.dto.UpdateLawBaseRequest;
+import com.law.annotation.law.dto.UpdateLawStructureRequest;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import com.law.annotation.task.TaskLawMutationGuard;
@@ -75,35 +76,53 @@ class LawVersionRecycleIntegrationTests {
     }
 
     @Test
-    void activeTaskBlocksWholeLawUpdateBeforeAuditOrVersionCreation() {
+    void activeTaskReturnsLawLockErrorForEveryMutationPath() {
         InitialLawCreation creation = createLaw("任务锁定测试法");
-        LawDetailResponse detail = queryService.getDetail(creation.law().getId());
+        String lawId = creation.law().getId();
+        String articleId = creation.contentVersion()
+                .getSemanticArticlesSnapshot().getFirst().getArticleId();
         TaskRepository taskRepository = mock(TaskRepository.class);
         when(taskRepository.existsByLawIdAndTaskStateIn(
-                eq(creation.law().getId()), anyCollection())).thenReturn(true);
+                eq(lawId), anyCollection())).thenReturn(true);
         LawMutationGuard activeTaskGuard = new TaskLawMutationGuard(taskRepository);
+        LawMaintenanceService maintenanceService = maintenanceService(List.of(activeTaskGuard));
+        LawRecycleService recycleService = recycleService(List.of(activeTaskGuard));
 
-        assertThatThrownBy(() -> updateService(List.of(activeTaskGuard)).updateLaw(
-                        creation.law().getId(),
-                        updateRequest(detail, detail.name(), "被阻止的新正文"),
-                        "admin-1"))
-                .isInstanceOf(ApiException.class)
-                .extracting("code")
-                .isEqualTo("LAW.ACTIVE_TASK_EXISTS");
-        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
+        assertLawLocked(() -> maintenanceService.updateBase(
+                lawId,
+                new UpdateLawBaseRequest(
+                        "被阻止的新名称",
+                        "制定机关",
+                        LocalDate.of(2026, 8, 19),
+                        ValidityStatus.ACTIVE),
+                "admin-1"));
+        assertLawLocked(() -> maintenanceService.updateStructure(
+                lawId,
+                new UpdateLawStructureRequest(List.of()),
+                "admin-1"));
+        assertLawLocked(() -> maintenanceService.updateArticle(
+                lawId,
+                articleId,
+                new UpdateLawArticleRequest("第一条", "被阻止的新正文", 0),
+                "admin-1"));
+        assertLawLocked(() -> recycleService.deleteLaw(lawId));
+
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(lawId))
                 .hasSize(1);
-        assertThat(lawAuditRepository.findByLawIdOrderByOperatedAtDesc(creation.law().getId()))
+        assertThat(lawAuditRepository.findByLawIdOrderByOperatedAtDesc(lawId))
                 .isEmpty();
     }
 
     @Test
     void nameOnlyUpdateAppendsAuditWithoutCreatingContentVersion() {
         InitialLawCreation creation = createLaw("修改前名称");
-        LawDetailResponse detail = queryService.getDetail(creation.law().getId());
-
-        LawDetailResponse updated = updateService(List.of()).updateLaw(
+        LawDetailResponse updated = maintenanceService(List.of()).updateBase(
                 creation.law().getId(),
-                updateRequest(detail, "修改后名称", detail.articles().getFirst().body()),
+                new UpdateLawBaseRequest(
+                        "修改后名称",
+                        creation.law().getIssuingAuthority(),
+                        creation.law().getPublicationDate(),
+                        creation.law().getValidityStatus()),
                 "admin-1");
 
         assertThat(updated.name()).isEqualTo("修改后名称");
@@ -122,11 +141,12 @@ class LawVersionRecycleIntegrationTests {
     @Test
     void bodyUpdateCreatesNewImmutableContentVersionWithoutFormalAnnotation() {
         InitialLawCreation creation = createLaw("正文版本测试法");
-        LawDetailResponse detail = queryService.getDetail(creation.law().getId());
-
-        LawDetailResponse updated = updateService(List.of()).updateLaw(
+        String articleId = creation.contentVersion()
+                .getSemanticArticlesSnapshot().getFirst().getArticleId();
+        LawDetailResponse updated = maintenanceService(List.of()).updateArticle(
                 creation.law().getId(),
-                updateRequest(detail, detail.name(), "第二版正文"),
+                articleId,
+                new UpdateLawArticleRequest("第一条", "第二版正文", 0),
                 "admin-1");
 
         List<ContentVersionDocument> versions = contentVersionRepository
@@ -149,11 +169,10 @@ class LawVersionRecycleIntegrationTests {
                 Query.query(Criteria.where("_id").is(lawId)),
                 new Update().set("currentAnnotationVersionId", "annotation-1"),
                 LawDocument.class);
-        LawDetailResponse detail = queryService.getDetail(lawId);
-
-        LawDetailResponse updated = updateService(List.of()).updateLaw(
+        LawDetailResponse updated = maintenanceService(List.of()).updateArticle(
                 lawId,
-                updateRequest(detail, detail.name(), "正式标注后的新正文"),
+                articleId,
+                new UpdateLawArticleRequest("第一条", "正式标注后的新正文", 0),
                 "admin-1");
 
         LawDocument stored = lawRepository.findById(lawId).orElseThrow();
@@ -165,33 +184,15 @@ class LawVersionRecycleIntegrationTests {
     }
 
     @Test
-    void wholeLawUpdateClassifiesAddedModifiedAndDeletedArticleIds() {
+    void granularArticleMutationsClassifyAddedModifiedAndDeletedArticleIds() {
         InitialLawCreation creation = createLaw("变更集合分类测试法");
         String lawId = creation.law().getId();
-        LawDetailResponse c1 = queryService.getDetail(lawId);
-        LawDetailResponse.Article first = c1.articles().getFirst();
-        LawDetailResponse c2 = updateService(List.of()).updateLaw(
+        String firstId = creation.contentVersion()
+                .getSemanticArticlesSnapshot().getFirst().getArticleId();
+        LawMaintenanceService service = maintenanceService(List.of());
+        LawDetailResponse c2 = service.addArticle(
                 lawId,
-                new UpdateLawRequest(
-                        new LawBaseInfoInput(
-                                c1.name(),
-                                c1.issuingAuthority(),
-                                c1.publicationDate(),
-                                c1.validityStatus()),
-                        List.of(),
-                        List.of(
-                                new UpdateLawArticleInput(
-                                        first.articleId(),
-                                        first.articleId(),
-                                        first.number(),
-                                        first.body(),
-                                        0),
-                                new UpdateLawArticleInput(
-                                        null,
-                                        "new-second",
-                                        "第二条",
-                                        "第二条正文",
-                                        1))),
+                new CreateLawArticleRequest("第二条", "第二条正文", 1),
                 "admin-1");
         String secondId = c2.articles().stream()
                 .filter(article -> article.number().equals("第二条"))
@@ -203,52 +204,42 @@ class LawVersionRecycleIntegrationTests {
                 new Update().set("currentAnnotationVersionId", "annotation-1"),
                 LawDocument.class);
 
-        LawDetailResponse c3 = updateService(List.of()).updateLaw(
+        LawDetailResponse afterAdd = service.addArticle(
                 lawId,
-                new UpdateLawRequest(
-                        new LawBaseInfoInput(
-                                c2.name(),
-                                c2.issuingAuthority(),
-                                c2.publicationDate(),
-                                c2.validityStatus()),
-                        List.of(),
-                        List.of(
-                                new UpdateLawArticleInput(
-                                        null,
-                                        "new-third",
-                                        "第三条",
-                                        "新增法条正文",
-                                        0),
-                                new UpdateLawArticleInput(
-                                        first.articleId(),
-                                        first.articleId(),
-                                        first.number(),
-                                        "修改后的第一条正文",
-                                        1))),
+                new CreateLawArticleRequest("第三条", "新增法条正文", 2),
                 "admin-1");
 
-        String thirdId = c3.articles().stream()
+        String thirdId = afterAdd.articles().stream()
                 .filter(article -> article.number().equals("第三条"))
                 .findFirst()
                 .orElseThrow()
                 .articleId();
+        service.updateArticle(
+                lawId,
+                firstId,
+                new UpdateLawArticleRequest("第一条", "修改后的第一条正文", 0),
+                "admin-1");
+        LawDetailResponse c5 = service.deleteArticle(lawId, secondId, "admin-1");
+
         LawDocument stored = lawRepository.findById(lawId).orElseThrow();
         assertThat(stored.getPendingChangeSet().getAddedArticleIds()).containsExactly(thirdId);
         assertThat(stored.getPendingChangeSet().getModifiedArticleIds())
-                .containsExactly(first.articleId());
+                .containsExactly(firstId);
         assertThat(stored.getPendingChangeSet().getDeletedArticleIds()).containsExactly(secondId);
-        assertThat(c3.articles()).extracting(LawDetailResponse.Article::articleId)
-                .containsExactly(thirdId, first.articleId())
+        assertThat(c5.articles()).extracting(LawDetailResponse.Article::articleId)
+                .containsExactly(firstId, thirdId)
                 .doesNotContain(secondId);
     }
 
     @Test
     void lawWithVersionHistoryIsSoftDeletedAndListedInRecycleBin() {
         InitialLawCreation creation = createLaw("历史软删除测试法");
-        LawDetailResponse detail = queryService.getDetail(creation.law().getId());
-        updateService(List.of()).updateLaw(
+        String articleId = creation.contentVersion()
+                .getSemanticArticlesSnapshot().getFirst().getArticleId();
+        maintenanceService(List.of()).updateArticle(
                 creation.law().getId(),
-                updateRequest(detail, detail.name(), "形成C2的正文"),
+                articleId,
+                new UpdateLawArticleRequest("第一条", "形成C2的正文", 0),
                 "admin-1");
 
         recycleService(List.of()).deleteLaw(creation.law().getId());
@@ -330,7 +321,7 @@ class LawVersionRecycleIntegrationTests {
         assertThatThrownBy(() -> service.deleteLaw(creation.law().getId()))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo("LAW.ACTIVE_TASK_EXISTS");
+                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK);
         assertThat(lawRepository.findById(creation.law().getId())).isPresent();
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
                 .hasSize(1);
@@ -351,12 +342,13 @@ class LawVersionRecycleIntegrationTests {
     @Test
     void softDeletedLawCanBeRestoredIntoNormalList() {
         InitialLawCreation creation = createLaw("恢复成功测试法");
-        LawDetailResponse detail = queryService.getDetail(creation.law().getId());
-        updateService(List.of()).updateLaw(
+        String articleId = creation.contentVersion()
+                .getSemanticArticlesSnapshot().getFirst().getArticleId();
+        maintenanceService(List.of()).updateArticle(
                 creation.law().getId(),
-                updateRequest(detail, detail.name(), "形成历史以便软删除"),
+                articleId,
+                new UpdateLawArticleRequest("第一条", "形成历史以便软删除", 0),
                 "admin-1");
-        String articleId = detail.articles().getFirst().articleId();
         PendingChangeSet pendingChanges = PendingChangeSet.empty()
                 .recordModification(articleId);
         mongoTemplate.updateFirst(
@@ -452,8 +444,8 @@ class LawVersionRecycleIntegrationTests {
                 .isEqualTo(LawErrorCodes.NAME_ALREADY_EXISTS);
     }
 
-    private static LawUpdateService updateService(List<LawMutationGuard> guards) {
-        return new LawUpdateService(
+    private static LawMaintenanceService maintenanceService(List<LawMutationGuard> guards) {
+        return new LawMaintenanceService(
                 lawRepository,
                 contentVersionRepository,
                 lawAuditRepository,
@@ -484,23 +476,11 @@ class LawVersionRecycleIntegrationTests {
                         "admin-1");
     }
 
-    private static UpdateLawRequest updateRequest(
-            LawDetailResponse detail,
-            String name,
-            String body) {
-        LawDetailResponse.Article article = detail.articles().getFirst();
-        return new UpdateLawRequest(
-                new LawBaseInfoInput(
-                        name,
-                        detail.issuingAuthority(),
-                        detail.publicationDate(),
-                        detail.validityStatus()),
-                List.of(),
-                List.of(new UpdateLawArticleInput(
-                        article.articleId(),
-                        article.articleId(),
-                        article.number(),
-                        body,
-                        article.order())));
+    private static void assertLawLocked(Runnable mutation) {
+        assertThatThrownBy(mutation::run)
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK)
+                .isNotEqualTo("TASK_ALREADY_EXISTS");
     }
 }
