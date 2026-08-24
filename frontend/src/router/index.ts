@@ -74,6 +74,30 @@ const routes: RouteRecordRaw[] = [
         component: LawDetailView,
         meta: { roles: ['ADMIN'], title: '法律详情' },
       },
+      {
+        path: 'tasks',
+        name: 'admin-tasks',
+        component: () => import('../views/task/AdminTaskListView.vue'),
+        meta: { roles: ['ADMIN'], title: '任务管理' },
+      },
+      {
+        path: 'tasks/:taskId',
+        name: 'admin-task-detail',
+        component: () => import('../views/task/TaskDetailView.vue'),
+        meta: { roles: ['ADMIN'], title: '任务详情' },
+      },
+      {
+        path: 'my-tasks',
+        name: 'my-tasks',
+        component: () => import('../views/task/MyTasksView.vue'),
+        meta: { roles: ['ANNOTATOR'], title: '我的任务' },
+      },
+      {
+        path: 'my-tasks/:taskId',
+        name: 'my-task-detail',
+        component: () => import('../views/task/TaskDetailView.vue'),
+        meta: { roles: ['ANNOTATOR'], title: '任务详情' },
+      },
     ],
   },
   {
@@ -87,8 +111,8 @@ const router = createRouter({
   routes,
 })
 
-export function landingRouteName(role: Role): 'users' | 'profile' {
-  return role === 'ADMIN' ? 'users' : 'profile'
+export function landingRouteName(role: Role): 'users' | 'my-tasks' {
+  return role === 'ADMIN' ? 'users' : 'my-tasks'
 }
 
 router.beforeEach(async (to) => {
