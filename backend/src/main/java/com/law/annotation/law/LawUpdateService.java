@@ -35,6 +35,7 @@ public class LawUpdateService {
     private final LawQueryService lawQueryService;
     private final MongoTemplate mongoTemplate;
     private final List<LawMutationGuard> mutationGuards;
+    private final LawOperationCoordinator operationCoordinator;
 
     public LawUpdateService(
             LawRepository lawRepository,
@@ -42,19 +43,37 @@ public class LawUpdateService {
             LawAuditRepository lawAuditRepository,
             LawQueryService lawQueryService,
             MongoTemplate mongoTemplate,
-            List<LawMutationGuard> mutationGuards) {
+            List<LawMutationGuard> mutationGuards,
+            LawOperationCoordinator operationCoordinator) {
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
         this.lawAuditRepository = lawAuditRepository;
         this.lawQueryService = lawQueryService;
         this.mongoTemplate = mongoTemplate;
         this.mutationGuards = List.copyOf(mutationGuards);
+        this.operationCoordinator = operationCoordinator;
     }
 
     public LawDetailResponse updateLaw(
             String lawId,
             UpdateLawRequest request,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawUpdateService::versionConflict,
+                operationToken -> updateLawLocked(
+                        lawId,
+                        request,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse updateLawLocked(
+            String lawId,
+            UpdateLawRequest request,
+            String operatorId,
+            String operationToken) {
         LawDocument law = lawQueryService.requireVisibleLaw(lawId);
         mutationGuards.forEach(guard -> guard.assertMutationAllowed(lawId));
         ContentVersionDocument current = lawQueryService.requireCurrentVersion(law);
@@ -143,7 +162,8 @@ public class LawUpdateService {
                             .is(lawId)
                             .and("deletedAt").is(null)
                             .and("updatedAt").is(law.getUpdatedAt())
-                            .and("currentContentVersionId").is(current.getId())),
+                            .and("currentContentVersionId").is(current.getId())
+                            .and(LawOperationCoordinator.OPERATION_TOKEN_FIELD).is(operationToken)),
                     update,
                     LawDocument.class);
             if (result.getModifiedCount() != 1) {

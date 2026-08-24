@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -255,12 +256,67 @@ class LawVersionRecycleIntegrationTests {
         LawDocument deleted = lawRepository.findById(creation.law().getId()).orElseThrow();
         assertThat(deleted.isDeleted()).isTrue();
         assertThat(deleted.getDeletedAt()).isNotNull();
+        assertThat(mongoTemplate.getCollection("laws")
+                        .find(new Document("_id", creation.law().getId()))
+                        .first())
+                .doesNotContainKey("deleted");
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
                 .hasSize(2);
         assertThat(queryService.list(null, 0, 10).items()).isEmpty();
         assertThat(queryService.listRecycle(null, 0, 10).items())
                 .singleElement()
                 .satisfies(item -> assertThat(item.id()).isEqualTo(creation.law().getId()));
+    }
+
+    @Test
+    void lawWithOnlyHistoricalTaskAndC1IsSoftDeleted() {
+        InitialLawCreation creation = createLaw("仅任务历史测试法");
+        mongoTemplate.getCollection("tasks").insertOne(new Document("_id", "task-history")
+                .append("lawId", creation.law().getId())
+                .append("taskState", "CANCELED"));
+
+        recycleService(List.of()).deleteLaw(creation.law().getId());
+
+        LawDocument stored = lawRepository.findById(creation.law().getId()).orElseThrow();
+        assertThat(stored.getDeletedAt()).isNotNull();
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
+                .hasSize(1);
+    }
+
+    @Test
+    void lawWithOnlyAuditHistoryAndC1IsSoftDeleted() {
+        InitialLawCreation creation = createLaw("仅审计历史测试法");
+        lawAuditRepository.insert(LawAuditDocument.create(
+                creation.law().getId(),
+                LawAuditType.BASE_INFO,
+                java.util.Map.of("name", "旧名称"),
+                java.util.Map.of("name", creation.law().getName()),
+                "admin-1",
+                Instant.now()));
+
+        recycleService(List.of()).deleteLaw(creation.law().getId());
+
+        LawDocument stored = lawRepository.findById(creation.law().getId()).orElseThrow();
+        assertThat(stored.getDeletedAt()).isNotNull();
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
+                .hasSize(1);
+    }
+
+    @Test
+    void lawWithFormalAnnotationAndC1IsSoftDeleted() {
+        InitialLawCreation creation = createLaw("正式标注历史测试法");
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is(creation.law().getId())),
+                new Update().set("currentAnnotationVersionId", "annotation-1"),
+                LawDocument.class);
+
+        recycleService(List.of()).deleteLaw(creation.law().getId());
+
+        LawDocument stored = lawRepository.findById(creation.law().getId()).orElseThrow();
+        assertThat(stored.getDeletedAt()).isNotNull();
+        assertThat(stored.getCurrentAnnotationVersionId()).isEqualTo("annotation-1");
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
+                .hasSize(1);
     }
 
     @Test
@@ -300,6 +356,16 @@ class LawVersionRecycleIntegrationTests {
                 creation.law().getId(),
                 updateRequest(detail, detail.name(), "形成历史以便软删除"),
                 "admin-1");
+        String articleId = detail.articles().getFirst().articleId();
+        PendingChangeSet pendingChanges = PendingChangeSet.empty()
+                .recordModification(articleId);
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is(creation.law().getId())),
+                new Update()
+                        .set("currentAnnotationVersionId", "annotation-1")
+                        .set("pendingRevision", true)
+                        .set("pendingChangeSet", pendingChanges),
+                LawDocument.class);
         LawRecycleService recycleService = recycleService(List.of());
         recycleService.deleteLaw(creation.law().getId());
 
@@ -308,10 +374,33 @@ class LawVersionRecycleIntegrationTests {
         assertThat(restored.id()).isEqualTo(creation.law().getId());
         assertThat(lawRepository.findById(creation.law().getId()).orElseThrow().isDeleted())
                 .isFalse();
+        LawDocument stored = lawRepository.findById(creation.law().getId()).orElseThrow();
+        assertThat(stored.getCurrentAnnotationVersionId()).isEqualTo("annotation-1");
+        assertThat(stored.isPendingRevision()).isTrue();
+        assertThat(stored.getPendingChangeSet().getModifiedArticleIds())
+                .containsExactly(articleId);
         assertThat(queryService.list(null, 0, 10).items())
                 .singleElement()
                 .satisfies(item -> assertThat(item.id()).isEqualTo(creation.law().getId()));
         assertThat(queryService.listRecycle(null, 0, 10).items()).isEmpty();
+    }
+
+    @Test
+    void softDeletedLawKeepsNormalizedNameOccupied() {
+        InitialLawCreation creation = createLaw("回收站名称占用测试法");
+        lawAuditRepository.insert(LawAuditDocument.create(
+                creation.law().getId(),
+                LawAuditType.BASE_INFO,
+                java.util.Map.of(),
+                java.util.Map.of("name", creation.law().getName()),
+                "admin-1",
+                Instant.now()));
+        recycleService(List.of()).deleteLaw(creation.law().getId());
+
+        assertThatThrownBy(() -> createLaw("回收站名称占用测试法"))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.NAME_ALREADY_EXISTS);
     }
 
     @Test
@@ -354,7 +443,8 @@ class LawVersionRecycleIntegrationTests {
                 repository,
                 mockedQueryService,
                 template,
-                List.of());
+                List.of(),
+                new LawOperationCoordinator(template));
 
         assertThatThrownBy(() -> service.restoreLaw("law-1"))
                 .isInstanceOf(ApiException.class)
@@ -369,7 +459,8 @@ class LawVersionRecycleIntegrationTests {
                 lawAuditRepository,
                 queryService,
                 mongoTemplate,
-                guards);
+                guards,
+                new LawOperationCoordinator(mongoTemplate));
     }
 
     private static LawRecycleService recycleService(List<LawMutationGuard> guards) {
@@ -377,7 +468,8 @@ class LawVersionRecycleIntegrationTests {
                 lawRepository,
                 queryService,
                 mongoTemplate,
-                guards);
+                guards,
+                new LawOperationCoordinator(mongoTemplate));
     }
 
     private static InitialLawCreation createLaw(String name) {

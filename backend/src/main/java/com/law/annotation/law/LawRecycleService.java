@@ -22,36 +22,55 @@ public class LawRecycleService {
     private final LawQueryService lawQueryService;
     private final MongoTemplate mongoTemplate;
     private final List<LawMutationGuard> mutationGuards;
+    private final LawOperationCoordinator operationCoordinator;
 
     public LawRecycleService(
             LawRepository lawRepository,
             LawQueryService lawQueryService,
             MongoTemplate mongoTemplate,
-            List<LawMutationGuard> mutationGuards) {
+            List<LawMutationGuard> mutationGuards,
+            LawOperationCoordinator operationCoordinator) {
         this.lawRepository = lawRepository;
         this.lawQueryService = lawQueryService;
         this.mongoTemplate = mongoTemplate;
         this.mutationGuards = List.copyOf(mutationGuards);
+        this.operationCoordinator = operationCoordinator;
     }
 
     public void deleteLaw(String lawId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        operationCoordinator.withVisibleLaw(
+                lawId,
+                LawRecycleService::versionConflict,
+                operationToken -> {
+                    deleteLawLocked(lawId, operationToken);
+                    return null;
+                });
+    }
+
+    private void deleteLawLocked(String lawId, String operationToken) {
         LawDocument law = lawQueryService.requireVisibleLaw(lawId);
         assertMutationAllowed(lawId);
         if (hasBusinessHistory(law)) {
-            softDelete(law);
+            softDelete(law, operationToken);
         } else {
-            physicallyDelete(law);
+            physicallyDelete(law, operationToken);
         }
     }
 
     public LawDetailResponse restoreLaw(String lawId) {
+        assertNameAvailable(lawQueryService.requireDeletedLaw(lawId));
+        return operationCoordinator.withDeletedLaw(
+                lawId,
+                LawRecycleService::versionConflict,
+                operationToken -> restoreLawLocked(lawId, operationToken));
+    }
+
+    private LawDetailResponse restoreLawLocked(String lawId, String operationToken) {
         LawDocument law = lawQueryService.requireDeletedLaw(lawId);
         assertMutationAllowed(lawId);
         lawQueryService.requireCurrentVersion(law);
-        lawRepository.findFirstByNormalizedNameAndIdNot(law.getNormalizedName(), law.getId())
-                .ifPresent(conflict -> {
-                    throw nameConflict();
-                });
+        assertNameAvailable(law);
 
         Instant now = Instant.now();
         try {
@@ -60,9 +79,9 @@ public class LawRecycleService {
                             .is(law.getId())
                             .and("deletedAt").is(law.getDeletedAt())
                             .and("updatedAt").is(law.getUpdatedAt())
-                            .and("currentContentVersionId").is(law.getCurrentContentVersionId())),
+                            .and("currentContentVersionId").is(law.getCurrentContentVersionId())
+                            .and(LawOperationCoordinator.OPERATION_TOKEN_FIELD).is(operationToken)),
                     new Update()
-                            .set("deleted", false)
                             .unset("deletedAt")
                             .set("updatedAt", now),
                     LawDocument.class);
@@ -71,6 +90,13 @@ public class LawRecycleService {
             throw nameConflict();
         }
         return lawQueryService.getDetail(lawId);
+    }
+
+    private void assertNameAvailable(LawDocument law) {
+        lawRepository.findFirstByNormalizedNameAndIdNot(law.getNormalizedName(), law.getId())
+                .ifPresent(conflict -> {
+                    throw nameConflict();
+                });
     }
 
     private boolean hasBusinessHistory(LawDocument law) {
@@ -87,20 +113,21 @@ public class LawRecycleService {
         return mongoTemplate.count(lawIdQuery, ContentVersionDocument.class) > 1;
     }
 
-    private void softDelete(LawDocument law) {
+    private void softDelete(LawDocument law, String operationToken) {
         Instant now = Instant.now();
         UpdateResult result = mongoTemplate.updateFirst(
-                currentLawQuery(law),
+                currentLawQuery(law, operationToken),
                 new Update()
-                        .set("deleted", true)
                         .set("deletedAt", now)
                         .set("updatedAt", now),
                 LawDocument.class);
         requireUpdated(result);
     }
 
-    private void physicallyDelete(LawDocument law) {
-        DeleteResult deletedLaw = mongoTemplate.remove(currentLawQuery(law), LawDocument.class);
+    private void physicallyDelete(LawDocument law, String operationToken) {
+        DeleteResult deletedLaw = mongoTemplate.remove(
+                currentLawQuery(law, operationToken),
+                LawDocument.class);
         if (deletedLaw.getDeletedCount() != 1) {
             throw versionConflict();
         }
@@ -127,12 +154,13 @@ public class LawRecycleService {
         mutationGuards.forEach(guard -> guard.assertMutationAllowed(lawId));
     }
 
-    private static Query currentLawQuery(LawDocument law) {
+    private static Query currentLawQuery(LawDocument law, String operationToken) {
         return Query.query(Criteria.where("_id")
                 .is(law.getId())
                 .and("deletedAt").is(null)
                 .and("updatedAt").is(law.getUpdatedAt())
-                .and("currentContentVersionId").is(law.getCurrentContentVersionId()));
+                .and("currentContentVersionId").is(law.getCurrentContentVersionId())
+                .and(LawOperationCoordinator.OPERATION_TOKEN_FIELD).is(operationToken));
     }
 
     private static void requireUpdated(UpdateResult result) {

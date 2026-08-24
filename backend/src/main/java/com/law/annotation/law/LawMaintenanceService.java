@@ -35,6 +35,7 @@ public class LawMaintenanceService {
     private final LawQueryService lawQueryService;
     private final MongoTemplate mongoTemplate;
     private final List<LawMutationGuard> mutationGuards;
+    private final LawOperationCoordinator operationCoordinator;
 
     public LawMaintenanceService(
             LawRepository lawRepository,
@@ -42,19 +43,37 @@ public class LawMaintenanceService {
             LawAuditRepository lawAuditRepository,
             LawQueryService lawQueryService,
             MongoTemplate mongoTemplate,
-            List<LawMutationGuard> mutationGuards) {
+            List<LawMutationGuard> mutationGuards,
+            LawOperationCoordinator operationCoordinator) {
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
         this.lawAuditRepository = lawAuditRepository;
         this.lawQueryService = lawQueryService;
         this.mongoTemplate = mongoTemplate;
         this.mutationGuards = List.copyOf(mutationGuards);
+        this.operationCoordinator = operationCoordinator;
     }
 
     public LawDetailResponse updateBase(
             String lawId,
             UpdateLawBaseRequest request,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawMaintenanceService::versionConflict,
+                operationToken -> updateBaseLocked(
+                        lawId,
+                        request,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse updateBaseLocked(
+            String lawId,
+            UpdateLawBaseRequest request,
+            String operatorId,
+            String operationToken) {
         LawDocument law = mutableLaw(lawId);
         if (request == null) {
             throw validation("baseInfo", "法律基础信息不能为空");
@@ -97,7 +116,7 @@ public class LawMaintenanceService {
         lawAuditRepository.insert(audit);
         try {
             UpdateResult result = mongoTemplate.updateFirst(
-                    currentLawQuery(law),
+                    currentLawQuery(law, operationToken),
                     new Update()
                             .set("name", name)
                             .set("normalizedName", normalizedName)
@@ -121,6 +140,22 @@ public class LawMaintenanceService {
             String lawId,
             UpdateLawStructureRequest request,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawMaintenanceService::versionConflict,
+                operationToken -> updateStructureLocked(
+                        lawId,
+                        request,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse updateStructureLocked(
+            String lawId,
+            UpdateLawStructureRequest request,
+            String operatorId,
+            String operationToken) {
         LawDocument law = mutableLaw(lawId);
         ContentVersionDocument version = lawQueryService.requireCurrentVersion(law);
         if (request == null || request.structure() == null) {
@@ -150,7 +185,7 @@ public class LawMaintenanceService {
         lawAuditRepository.insert(audit);
         try {
             UpdateResult result = mongoTemplate.updateFirst(
-                    currentLawQuery(law),
+                    currentLawQuery(law, operationToken),
                     new Update().set("structure", structure).set("updatedAt", now),
                     LawDocument.class);
             requireUpdated(result);
@@ -165,6 +200,22 @@ public class LawMaintenanceService {
             String lawId,
             CreateLawArticleRequest request,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawMaintenanceService::versionConflict,
+                operationToken -> addArticleLocked(
+                        lawId,
+                        request,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse addArticleLocked(
+            String lawId,
+            CreateLawArticleRequest request,
+            String operatorId,
+            String operationToken) {
         LawDocument law = mutableLaw(lawId);
         ContentVersionDocument current = lawQueryService.requireCurrentVersion(law);
         if (request == null) {
@@ -185,6 +236,7 @@ public class LawMaintenanceService {
                 current,
                 articles,
                 operatorId,
+                operationToken,
                 pending -> pending.recordAddition(articleId),
                 null,
                 null);
@@ -195,6 +247,24 @@ public class LawMaintenanceService {
             String articleId,
             UpdateLawArticleRequest request,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawMaintenanceService::versionConflict,
+                operationToken -> updateArticleLocked(
+                        lawId,
+                        articleId,
+                        request,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse updateArticleLocked(
+            String lawId,
+            String articleId,
+            UpdateLawArticleRequest request,
+            String operatorId,
+            String operationToken) {
         LawDocument law = mutableLaw(lawId);
         ContentVersionDocument current = lawQueryService.requireCurrentVersion(law);
         if (request == null) {
@@ -232,6 +302,7 @@ public class LawMaintenanceService {
                 current,
                 articles,
                 operatorId,
+                operationToken,
                 pending -> pending.recordModification(articleId),
                 null,
                 null);
@@ -241,6 +312,22 @@ public class LawMaintenanceService {
             String lawId,
             String articleId,
             String operatorId) {
+        lawQueryService.requireVisibleLaw(lawId);
+        return operationCoordinator.withVisibleLaw(
+                lawId,
+                LawMaintenanceService::versionConflict,
+                operationToken -> deleteArticleLocked(
+                        lawId,
+                        articleId,
+                        operatorId,
+                        operationToken));
+    }
+
+    private LawDetailResponse deleteArticleLocked(
+            String lawId,
+            String articleId,
+            String operatorId,
+            String operationToken) {
         LawDocument law = mutableLaw(lawId);
         ContentVersionDocument current = lawQueryService.requireCurrentVersion(law);
         if (current.getSemanticArticlesSnapshot().size() == 1
@@ -283,6 +370,7 @@ public class LawMaintenanceService {
                 current,
                 articles,
                 operatorId,
+                operationToken,
                 pending -> pending.recordDeletion(articleId),
                 updatedStructure,
                 structureAudit);
@@ -293,6 +381,7 @@ public class LawMaintenanceService {
             ContentVersionDocument current,
             List<ArticleSnapshot> articles,
             String operatorId,
+            String operationToken,
             UnaryOperator<PendingChangeSet> pendingChange,
             List<LawStructureNode> updatedStructure,
             LawAuditDocument structureAudit) {
@@ -338,7 +427,9 @@ public class LawMaintenanceService {
                     Query.query(Criteria.where("_id")
                             .is(law.getId())
                             .and("deletedAt").is(null)
-                            .and("currentContentVersionId").is(current.getId())),
+                            .and("updatedAt").is(law.getUpdatedAt())
+                            .and("currentContentVersionId").is(current.getId())
+                            .and(LawOperationCoordinator.OPERATION_TOKEN_FIELD).is(operationToken)),
                     update,
                     LawDocument.class);
             if (result.getModifiedCount() != 1) {
@@ -400,11 +491,12 @@ public class LawMaintenanceService {
         return true;
     }
 
-    private static Query currentLawQuery(LawDocument law) {
+    private static Query currentLawQuery(LawDocument law, String operationToken) {
         return Query.query(Criteria.where("_id")
                 .is(law.getId())
                 .and("deletedAt").is(null)
-                .and("updatedAt").is(law.getUpdatedAt()));
+                .and("updatedAt").is(law.getUpdatedAt())
+                .and(LawOperationCoordinator.OPERATION_TOKEN_FIELD).is(operationToken));
     }
 
     private static void requireUpdated(UpdateResult result) {
