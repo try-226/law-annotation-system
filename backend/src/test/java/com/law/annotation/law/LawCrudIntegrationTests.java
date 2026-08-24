@@ -578,7 +578,7 @@ class LawCrudIntegrationTests {
         LawMutationGuard guard = lawId -> {
             throw new ApiException(
                     org.springframework.http.HttpStatus.CONFLICT,
-                    LawErrorCodes.LOCKED_BY_ACTIVE_TASK,
+                    LawErrorCodes.ACTIVE_TASK_EXISTS,
                     "存在未结束任务");
         };
         LawMaintenanceService service = maintenanceService(List.of(guard));
@@ -590,7 +590,7 @@ class LawCrudIntegrationTests {
                         "admin-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK);
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS);
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
                 .hasSize(1);
     }

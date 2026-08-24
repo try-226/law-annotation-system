@@ -321,7 +321,7 @@ class LawVersionRecycleIntegrationTests {
         assertThatThrownBy(() -> service.deleteLaw(creation.law().getId()))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK);
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS);
         assertThat(lawRepository.findById(creation.law().getId())).isPresent();
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
                 .hasSize(1);
@@ -480,7 +480,7 @@ class LawVersionRecycleIntegrationTests {
         assertThatThrownBy(mutation::run)
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK)
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS)
                 .isNotEqualTo("TASK_ALREADY_EXISTS");
     }
 }

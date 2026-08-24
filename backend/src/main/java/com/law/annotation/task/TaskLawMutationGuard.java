@@ -21,7 +21,7 @@ public class TaskLawMutationGuard implements LawMutationGuard {
                 lawId, TaskStateRules.UNFINISHED_STATES)) {
             throw new ApiException(
                     HttpStatus.CONFLICT,
-                    LawErrorCodes.LOCKED_BY_ACTIVE_TASK,
+                    LawErrorCodes.ACTIVE_TASK_EXISTS,
                     "法律存在未结束任务，不能修改");
         }
     }

@@ -21,7 +21,7 @@ class TaskIntegrationAdapterTests {
         assertThatThrownBy(() -> guard.assertMutationAllowed("law-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
-                .isEqualTo(LawErrorCodes.LOCKED_BY_ACTIVE_TASK);
+                .isEqualTo(LawErrorCodes.ACTIVE_TASK_EXISTS);
     }
 
     @Test
