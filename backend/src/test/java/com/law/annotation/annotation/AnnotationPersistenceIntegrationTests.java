@@ -1,6 +1,7 @@
 package com.law.annotation.annotation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.law.annotation.annotation.dto.SaveArticleDraftRequest;
 import com.law.annotation.annotation.dto.SaveOverallDraftRequest;
@@ -32,7 +33,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.data.mongodb.repository.support.MongoRepositoryFactory;
 
 class AnnotationPersistenceIntegrationTests {
@@ -125,12 +128,64 @@ class AnnotationPersistenceIntegrationTests {
         assertThat(response.taskState()).isEqualTo(TaskState.PENDING_REVIEW);
         assertThat(taskRepository.findById("task-1").orElseThrow().getTaskState())
                 .isEqualTo(TaskState.PENDING_REVIEW);
-        assertThat(submissionRepository.findAll()).singleElement().satisfies(submission -> {
-            assertThat(submission.getSubmissionNo()).isEqualTo(1);
-            assertThat(submission.getArticleSnapshots()).containsOnlyKeys("article-1", "article-2");
-            assertThat(submission.getOverallSnapshot().overallKeywords()).isEqualTo("合同");
+        TaskSubmissionDocument submission = submissionRepository.findAll().getFirst();
+        assertThat(taskRepository.findById("task-1").orElseThrow().getInitialSubmissionId())
+                .isEqualTo(submission.getSubmissionId());
+        assertThat(submission).satisfies(saved -> {
+            assertThat(saved.getSubmissionNo()).isEqualTo(1);
+            assertThat(saved.getArticleSnapshots()).containsOnlyKeys("article-1", "article-2");
+            assertThat(saved.getOverallSnapshot().overallKeywords()).isEqualTo("合同");
         });
         assertThat(mongoTemplate.collectionExists("annotation_versions")).isFalse();
+    }
+
+    @Test
+    void submittedSnapshotDoesNotChangeWhenDraftDocumentChanges() {
+        saveCompleteDraft();
+        var response = service.submitReview("task-1", owner());
+
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is("task-1")),
+                new Update()
+                        .set("overallDraft.overallKeywords", "修改后的关键词")
+                        .set("perArticleDrafts.article-1.keywords", "修改后的法条关键词"),
+                TaskDraftDocument.class);
+
+        TaskSubmissionDocument submission = submissionRepository
+                .findById(response.submissionId())
+                .orElseThrow();
+        assertThat(submission.getOverallSnapshot().overallKeywords()).isEqualTo("合同");
+        assertThat(submission.getArticleSnapshots().get("article-1").keywords())
+                .isEqualTo("定义");
+    }
+
+    @Test
+    void predictableTaskTransitionFailureLeavesNoSubmissionAndKeepsTaskAnnotating() {
+        saveCompleteDraft();
+        TaskService failingTaskService = org.mockito.Mockito.mock(TaskService.class);
+        org.mockito.Mockito.when(failingTaskService.submitReview(
+                        org.mockito.ArgumentMatchers.eq("task-1"),
+                        org.mockito.ArgumentMatchers.eq("annotator-1"),
+                        org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new ApiException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        TaskErrorCodes.INVALID_STATE_TRANSITION,
+                        "任务状态不允许提交审核"));
+        AnnotationDraftService failingService = new AnnotationDraftService(
+                taskRepository,
+                draftRepository,
+                submissionRepository,
+                failingTaskService,
+                mongoTemplate);
+
+        assertThatThrownBy(() -> failingService.submitReview("task-1", owner()))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(TaskErrorCodes.INVALID_STATE_TRANSITION);
+
+        assertThat(taskRepository.findById("task-1").orElseThrow().getTaskState())
+                .isEqualTo(TaskState.ANNOTATING);
+        assertThat(submissionRepository.count()).isZero();
     }
 
     @Test

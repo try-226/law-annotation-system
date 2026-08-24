@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -136,9 +137,7 @@ public class AnnotationDraftService {
         if (task.getTaskType() != TaskType.ORDINARY) {
             throw notEditable();
         }
-        if (task.getTaskState() == TaskState.PENDING_REVIEW
-                || submissionRepository.existsByTaskIdAndSubmissionNo(
-                        task.getTaskId(), INITIAL_SUBMISSION_NO)) {
+        if (task.getTaskState() == TaskState.PENDING_REVIEW) {
             throw alreadySubmitted();
         }
         if (task.getTaskState() != TaskState.ANNOTATING) {
@@ -155,35 +154,87 @@ public class AnnotationDraftService {
                     missing);
         }
 
+        TaskSubmissionDocument submission = prepareInitialSubmission(
+                task,
+                draft,
+                currentUser.id());
+        try {
+            TaskDetailResponse updated = taskService.submitReview(
+                    task.getTaskId(),
+                    currentUser.id(),
+                    submission.getSubmissionId());
+            return submitResponse(submission, updated.taskState());
+        } catch (ApiException exception) {
+            reconcileSubmissionOutcome(task.getTaskId(), submission, exception);
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (reconcileSubmissionOutcome(task.getTaskId(), submission, exception)) {
+                return submitResponse(submission, TaskState.PENDING_REVIEW);
+            }
+            throw exception;
+        }
+    }
+
+    private TaskSubmissionDocument prepareInitialSubmission(
+            TaskDocument task,
+            TaskDraftDocument draft,
+            String submittedBy) {
         Instant submittedAt = Instant.now();
-        String submissionId = UUID.randomUUID().toString();
-        TaskSubmissionDocument submission = new TaskSubmissionDocument(
-                submissionId,
+        TaskSubmissionDocument candidate = new TaskSubmissionDocument(
+                UUID.randomUUID().toString(),
                 task.getTaskId(),
                 INITIAL_SUBMISSION_NO,
                 draft.getRevision(),
                 draft.getOverallDraft(),
                 orderedArticleSnapshots(task, draft),
-                currentUser.id(),
+                submittedBy,
                 submittedAt);
         try {
-            submissionRepository.insert(submission);
+            return submissionRepository.insert(candidate);
         } catch (DuplicateKeyException exception) {
-            throw alreadySubmitted();
+            return submissionRepository.findByTaskIdAndSubmissionNo(
+                            task.getTaskId(), INITIAL_SUBMISSION_NO)
+                    .orElseThrow(AnnotationDraftService::alreadySubmitted);
+        }
+    }
+
+    private boolean reconcileSubmissionOutcome(
+            String taskId,
+            TaskSubmissionDocument submission,
+            RuntimeException originalFailure) {
+        TaskDocument current;
+        try {
+            current = taskRepository.findById(taskId).orElse(null);
+        } catch (RuntimeException reconciliationFailure) {
+            originalFailure.addSuppressed(reconciliationFailure);
+            return false;
+        }
+
+        boolean committed = current != null
+                && current.getTaskState() == TaskState.PENDING_REVIEW
+                && Objects.equals(
+                        current.getInitialSubmissionId(),
+                        submission.getSubmissionId());
+        if (committed) {
+            return true;
         }
 
         try {
-            TaskDetailResponse updated = taskService.submitReview(
-                    task.getTaskId(), currentUser.id());
-            return new SubmitReviewResponse(
-                    task.getTaskId(),
-                    submissionId,
-                    updated.taskState(),
-                    submittedAt);
-        } catch (RuntimeException exception) {
-            submissionRepository.deleteById(submissionId);
-            throw exception;
+            submissionRepository.deleteById(submission.getSubmissionId());
+        } catch (RuntimeException cleanupFailure) {
+            originalFailure.addSuppressed(cleanupFailure);
         }
+        return false;
+    }
+
+    private static SubmitReviewResponse submitResponse(
+            TaskSubmissionDocument submission,
+            TaskState taskState) {
+        return new SubmitReviewResponse(
+                submission.getTaskId(),
+                submission.getSubmissionId(),
+                taskState,
+                submission.getSubmittedAt());
     }
 
     private void clearField(TaskDocument task, String field, String actorId) {

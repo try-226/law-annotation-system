@@ -26,6 +26,7 @@ public class TaskDocument {
     private List<TaskStructureNodeSnapshot> structureSnapshot;
     private FieldConfigSnapshot fieldConfigSnapshot;
     private String createdBy;
+    private String initialSubmissionId;
     private String cancelReason;
     private String canceledBy;
     private Instant canceledAt;
@@ -50,6 +51,7 @@ public class TaskDocument {
             List<TaskStructureNodeSnapshot> structureSnapshot,
             FieldConfigSnapshot fieldConfigSnapshot,
             String createdBy,
+            String initialSubmissionId,
             String cancelReason,
             String canceledBy,
             Instant canceledAt,
@@ -69,6 +71,7 @@ public class TaskDocument {
         this.structureSnapshot = List.copyOf(structureSnapshot);
         this.fieldConfigSnapshot = fieldConfigSnapshot;
         this.createdBy = createdBy;
+        this.initialSubmissionId = initialSubmissionId;
         this.cancelReason = cancelReason;
         this.canceledBy = canceledBy;
         this.canceledAt = canceledAt;
@@ -130,6 +133,10 @@ public class TaskDocument {
 
     public String getCreatedBy() {
         return createdBy;
+    }
+
+    public String getInitialSubmissionId() {
+        return initialSubmissionId;
     }
 
     public String getCancelReason() {

@@ -3,6 +3,7 @@ package com.law.annotation.annotation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -23,6 +24,7 @@ import com.law.annotation.task.TaskService;
 import com.law.annotation.task.dto.TaskDetailResponse;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -126,10 +128,12 @@ class AnnotationDraftServiceTests {
         when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-1"))
                 .thenReturn(Optional.of(annotating));
         when(draftRepository.findById("task-1")).thenReturn(Optional.of(completeDraft()));
-        when(submissionRepository.existsByTaskIdAndSubmissionNo("task-1", 1)).thenReturn(false);
         when(submissionRepository.insert(any(TaskSubmissionDocument.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(taskService.submitReview("task-1", "annotator-1"))
+        when(taskService.submitReview(
+                org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq("annotator-1"),
+                anyString()))
                 .thenReturn(TaskDetailResponse.from(
                         AnnotationTestFixtures.task(TaskState.PENDING_REVIEW)));
 
@@ -142,7 +146,8 @@ class AnnotationDraftServiceTests {
         assertThat(captor.getValue().getSubmissionNo()).isEqualTo(1);
         assertThat(captor.getValue().getOverallSnapshot().lawCategory()).isEqualTo("民事");
         assertThat(captor.getValue().getArticleSnapshots()).containsOnlyKeys("article-1", "article-2");
-        verify(taskService).submitReview("task-1", "annotator-1");
+        verify(taskService).submitReview(
+                "task-1", "annotator-1", captor.getValue().getSubmissionId());
     }
 
     @Test
@@ -176,16 +181,96 @@ class AnnotationDraftServiceTests {
     }
 
     @Test
-    void duplicateSubmissionIndexIsMappedToBusinessError() {
+    void existingSubmissionIntentIsReusedForCasRecovery() {
         UserPrincipal owner = AnnotationTestFixtures.principal("annotator-1", Role.ANNOTATOR);
+        TaskSubmissionDocument existing = new TaskSubmissionDocument(
+                "submission-1",
+                "task-1",
+                1,
+                3,
+                completeDraft().getOverallDraft(),
+                completeDraft().getPerArticleDrafts(),
+                "annotator-1",
+                AnnotationTestFixtures.NOW);
         when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-1"))
                 .thenReturn(Optional.of(AnnotationTestFixtures.task(TaskState.ANNOTATING)));
         when(draftRepository.findById("task-1")).thenReturn(Optional.of(completeDraft()));
         when(submissionRepository.insert(any(TaskSubmissionDocument.class)))
                 .thenThrow(new DuplicateKeyException("duplicate"));
+        when(submissionRepository.findByTaskIdAndSubmissionNo("task-1", 1))
+                .thenReturn(Optional.of(existing));
+        when(taskService.submitReview("task-1", "annotator-1", "submission-1"))
+                .thenReturn(TaskDetailResponse.from(
+                        AnnotationTestFixtures.task(TaskState.PENDING_REVIEW)));
 
-        assertCode(() -> service.submitReview("task-1", owner), TaskErrorCodes.ALREADY_SUBMITTED);
-        verifyNoInteractions(taskService);
+        SubmitReviewResponse response = service.submitReview("task-1", owner);
+
+        assertThat(response.submissionId()).isEqualTo("submission-1");
+        verify(taskService).submitReview("task-1", "annotator-1", "submission-1");
+        verify(submissionRepository, never()).deleteById(anyString());
+    }
+
+    @Test
+    void failedTaskTransitionLeavesTaskStateAndRemovesUncommittedSubmission() {
+        TaskDocument annotating = AnnotationTestFixtures.task(TaskState.ANNOTATING);
+        UserPrincipal owner = AnnotationTestFixtures.principal("annotator-1", Role.ANNOTATOR);
+        when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-1"))
+                .thenReturn(Optional.of(annotating));
+        when(taskRepository.findById("task-1")).thenReturn(Optional.of(annotating));
+        when(draftRepository.findById("task-1")).thenReturn(Optional.of(completeDraft()));
+        when(submissionRepository.insert(any(TaskSubmissionDocument.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(taskService.submitReview(
+                org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq("annotator-1"),
+                anyString()))
+                .thenThrow(new ApiException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        TaskErrorCodes.INVALID_STATE_TRANSITION,
+                        "任务状态不允许提交审核"));
+
+        assertCode(
+                () -> service.submitReview("task-1", owner),
+                TaskErrorCodes.INVALID_STATE_TRANSITION);
+
+        assertThat(annotating.getTaskState()).isEqualTo(TaskState.ANNOTATING);
+        ArgumentCaptor<TaskSubmissionDocument> submissionCaptor =
+                ArgumentCaptor.forClass(TaskSubmissionDocument.class);
+        verify(submissionRepository).insert(submissionCaptor.capture());
+        verify(submissionRepository)
+                .deleteById(submissionCaptor.getValue().getSubmissionId());
+    }
+
+    @Test
+    void ambiguousTransitionFailureReturnsSuccessWhenTaskAlreadyBoundSubmission() {
+        TaskDocument annotating = AnnotationTestFixtures.task(TaskState.ANNOTATING);
+        UserPrincipal owner = AnnotationTestFixtures.principal("annotator-1", Role.ANNOTATOR);
+        AtomicReference<TaskSubmissionDocument> inserted = new AtomicReference<>();
+        when(taskRepository.findByTaskIdAndAnnotatorId("task-1", "annotator-1"))
+                .thenReturn(Optional.of(annotating));
+        when(draftRepository.findById("task-1")).thenReturn(Optional.of(completeDraft()));
+        when(submissionRepository.insert(any(TaskSubmissionDocument.class)))
+                .thenAnswer(invocation -> {
+                    TaskSubmissionDocument submission = invocation.getArgument(0);
+                    inserted.set(submission);
+                    return submission;
+                });
+        when(taskService.submitReview(
+                org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq("annotator-1"),
+                anyString()))
+                .thenThrow(new IllegalStateException("模拟调用方收到未知结果"));
+        when(taskRepository.findById("task-1")).thenAnswer(invocation -> Optional.of(
+                AnnotationTestFixtures.task(
+                        TaskState.PENDING_REVIEW,
+                        AnnotationTestFixtures.fieldSnapshot(),
+                        inserted.get().getSubmissionId())));
+
+        SubmitReviewResponse response = service.submitReview("task-1", owner);
+
+        assertThat(response.taskState()).isEqualTo(TaskState.PENDING_REVIEW);
+        assertThat(response.submissionId()).isEqualTo(inserted.get().getSubmissionId());
+        verify(submissionRepository, never()).deleteById(anyString());
     }
 
     private static TaskDraftDocument completeDraft() {

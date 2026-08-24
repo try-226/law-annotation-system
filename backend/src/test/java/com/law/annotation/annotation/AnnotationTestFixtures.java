@@ -30,6 +30,13 @@ final class AnnotationTestFixtures {
     }
 
     static TaskDocument task(TaskState state, FieldConfigSnapshot snapshot) {
+        return task(state, snapshot, null);
+    }
+
+    static TaskDocument task(
+            TaskState state,
+            FieldConfigSnapshot snapshot,
+            String initialSubmissionId) {
         return new TaskDocument(
                 "task-1",
                 TaskType.ORDINARY,
@@ -61,6 +68,7 @@ final class AnnotationTestFixtures {
                                 List.of("article-1", "article-2"))),
                 snapshot,
                 "admin-1",
+                initialSubmissionId,
                 null,
                 null,
                 null,
