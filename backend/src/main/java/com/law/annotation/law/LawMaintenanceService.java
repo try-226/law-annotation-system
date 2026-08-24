@@ -288,21 +288,6 @@ public class LawMaintenanceService {
                 structureAudit);
     }
 
-    public void deleteLaw(String lawId) {
-        LawDocument law = mutableLaw(lawId);
-        Instant now = Instant.now();
-        UpdateResult result = mongoTemplate.updateFirst(
-                Query.query(Criteria.where("_id")
-                        .is(law.getId())
-                        .and("deletedAt").is(null)
-                        .and("currentContentVersionId").is(law.getCurrentContentVersionId())),
-                new Update().set("deletedAt", now).set("updatedAt", now),
-                LawDocument.class);
-        if (result.getModifiedCount() != 1) {
-            throw versionConflict();
-        }
-    }
-
     private LawDetailResponse appendSemanticVersion(
             LawDocument law,
             ContentVersionDocument current,

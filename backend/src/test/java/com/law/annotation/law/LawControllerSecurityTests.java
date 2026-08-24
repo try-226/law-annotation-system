@@ -1,11 +1,14 @@
 package com.law.annotation.law;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,6 +55,12 @@ class LawControllerSecurityTests {
     private LawMaintenanceService lawMaintenanceService;
 
     @MockitoBean
+    private LawUpdateService lawUpdateService;
+
+    @MockitoBean
+    private LawRecycleService lawRecycleService;
+
+    @MockitoBean
     private UserRepository userRepository;
 
     @MockitoBean
@@ -77,6 +86,58 @@ class LawControllerSecurityTests {
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray());
+    }
+
+    @Test
+    void adminCanAccessRecycleList() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        when(lawQueryService.listRecycle(null, 0, 10))
+                .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+
+        mockMvc.perform(get("/laws/recycle").with(user(UserPrincipal.from(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray());
+    }
+
+    @Test
+    void wholeLawUpdateRequiresCsrfAndUsesAuthenticatedOperator() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        String body = """
+                {
+                  "baseInfo": {
+                    "name": "测试法",
+                    "issuingAuthority": "制定机关",
+                    "publicationDate": "2026-08-19",
+                    "validityStatus": "ACTIVE"
+                  },
+                  "structure": [],
+                  "articles": [
+                    {
+                      "articleId": "article-1",
+                      "clientKey": "article-1",
+                      "number": "第一条",
+                      "body": "正文",
+                      "order": 0
+                    }
+                  ]
+                }
+                """;
+
+        mockMvc.perform(put("/laws/law-1")
+                        .with(user(UserPrincipal.from(admin)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/laws/law-1")
+                        .with(user(UserPrincipal.from(admin)))
+                        .with(csrf().asHeader())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+        verify(lawUpdateService).updateLaw(anyString(), any(), anyString());
     }
 
     @Test

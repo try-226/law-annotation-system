@@ -2,6 +2,7 @@ package com.law.annotation.law;
 
 import com.law.annotation.law.dto.LawDetailResponse;
 import com.law.annotation.law.dto.LawListItemResponse;
+import com.law.annotation.law.dto.RecycleLawListItemResponse;
 import com.law.annotation.version.ContentVersionDocument;
 import java.util.Comparator;
 
@@ -50,6 +51,21 @@ final class LawResponseMapper {
                 version.getSeq(),
                 law.isPendingRevision(),
                 law.getCreatedAt(),
+                law.getUpdatedAt());
+    }
+
+    static RecycleLawListItemResponse toRecycleListItem(
+            LawDocument law,
+            ContentVersionDocument version) {
+        return new RecycleLawListItemResponse(
+                law.getId(),
+                law.getName(),
+                law.getIssuingAuthority(),
+                law.getPublicationDate(),
+                law.getValidityStatus(),
+                version.getSemanticArticlesSnapshot().size(),
+                law.isPendingRevision(),
+                law.getDeletedAt(),
                 law.getUpdatedAt());
     }
 }

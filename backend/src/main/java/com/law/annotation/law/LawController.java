@@ -9,6 +9,8 @@ import com.law.annotation.law.dto.LawImportConfirmRequest;
 import com.law.annotation.law.dto.LawImportParseRequest;
 import com.law.annotation.law.dto.LawImportPreviewResponse;
 import com.law.annotation.law.dto.LawListItemResponse;
+import com.law.annotation.law.dto.RecycleLawListItemResponse;
+import com.law.annotation.law.dto.UpdateLawRequest;
 import com.law.annotation.law.dto.UpdateLawArticleRequest;
 import com.law.annotation.law.dto.UpdateLawBaseRequest;
 import com.law.annotation.law.dto.UpdateLawStructureRequest;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -37,14 +40,20 @@ public class LawController {
     private final LawImportService lawImportService;
     private final LawQueryService lawQueryService;
     private final LawMaintenanceService lawMaintenanceService;
+    private final LawUpdateService lawUpdateService;
+    private final LawRecycleService lawRecycleService;
 
     public LawController(
             LawImportService lawImportService,
             LawQueryService lawQueryService,
-            LawMaintenanceService lawMaintenanceService) {
+            LawMaintenanceService lawMaintenanceService,
+            LawUpdateService lawUpdateService,
+            LawRecycleService lawRecycleService) {
         this.lawImportService = lawImportService;
         this.lawQueryService = lawQueryService;
         this.lawMaintenanceService = lawMaintenanceService;
+        this.lawUpdateService = lawUpdateService;
+        this.lawRecycleService = lawRecycleService;
     }
 
     @PostMapping("/import/parse")
@@ -69,9 +78,25 @@ public class LawController {
         return ApiResponse.success(lawQueryService.list(name, page, size));
     }
 
+    @GetMapping("/recycle")
+    public ApiResponse<PageResponse<RecycleLawListItemResponse>> listRecycle(
+            @RequestParam(required = false) String name,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ApiResponse.success(lawQueryService.listRecycle(name, page, size));
+    }
+
     @GetMapping("/{lawId}")
     public ApiResponse<LawDetailResponse> getLaw(@PathVariable String lawId) {
         return ApiResponse.success(lawQueryService.getDetail(lawId));
+    }
+
+    @PutMapping("/{lawId}")
+    public ApiResponse<LawDetailResponse> updateLaw(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable String lawId,
+            @Valid @RequestBody UpdateLawRequest request) {
+        return ApiResponse.success(lawUpdateService.updateLaw(lawId, request, principal.id()));
     }
 
     @PatchMapping("/{lawId}/base")
@@ -119,7 +144,12 @@ public class LawController {
 
     @DeleteMapping("/{lawId}")
     public ApiResponse<Void> deleteLaw(@PathVariable String lawId) {
-        lawMaintenanceService.deleteLaw(lawId);
+        lawRecycleService.deleteLaw(lawId);
         return ApiResponse.success(null);
+    }
+
+    @PostMapping("/{lawId}/restore")
+    public ApiResponse<LawDetailResponse> restoreLaw(@PathVariable String lawId) {
+        return ApiResponse.success(lawRecycleService.restoreLaw(lawId));
     }
 }

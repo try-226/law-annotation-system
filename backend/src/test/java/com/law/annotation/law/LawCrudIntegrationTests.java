@@ -402,17 +402,24 @@ class LawCrudIntegrationTests {
     }
 
     @Test
-    void deleteIsConservativeSoftDeleteAndPreservesVersionsAndNameReservation() {
+    void deleteWithVersionHistorySoftDeletesAndPreservesVersionsAndNameReservation() {
         InitialLawCreation creation = createLaw("删除测试法");
-        LawMaintenanceService service = maintenanceService(List.of());
+        LawMaintenanceService maintenanceService = maintenanceService(List.of());
+        maintenanceService.updateArticle(
+                creation.law().getId(),
+                creation.contentVersion().getSemanticArticlesSnapshot().getFirst().getArticleId(),
+                new UpdateLawArticleRequest("第一条", "形成历史的新正文", 0),
+                "admin-1");
+        LawRecycleService recycleService = recycleService(List.of());
 
-        service.deleteLaw(creation.law().getId());
+        recycleService.deleteLaw(creation.law().getId());
 
         LawDocument deleted = lawRepository.findById(creation.law().getId()).orElseThrow();
         assertThat(deleted.getDeletedAt()).isNotNull();
+        assertThat(deleted.isDeleted()).isTrue();
         assertThat(lawRepository.existsByNormalizedName("删除测试法")).isTrue();
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
-                .hasSize(1);
+                .hasSize(2);
         assertThat(queryService.list(null, 0, 10).items()).isEmpty();
     }
 
@@ -477,6 +484,14 @@ class LawCrudIntegrationTests {
                 lawRepository,
                 contentVersionRepository,
                 lawAuditRepository,
+                queryService,
+                mongoTemplate,
+                guards);
+    }
+
+    private static LawRecycleService recycleService(List<LawMutationGuard> guards) {
+        return new LawRecycleService(
+                lawRepository,
                 queryService,
                 mongoTemplate,
                 guards);

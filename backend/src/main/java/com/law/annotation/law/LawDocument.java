@@ -18,6 +18,7 @@ public class LawDocument {
     private final LocalDate publicationDate;
     private final ValidityStatus validityStatus;
     private final List<LawStructureNode> structure;
+    private boolean deleted;
     private Instant deletedAt;
     private final String currentContentVersionId;
     private final String currentAnnotationVersionId;
@@ -53,6 +54,7 @@ public class LawDocument {
         this.validityStatus = LawDomainRules.requireValidityStatus(validityStatus);
         this.structure = structure == null ? List.of() : List.copyOf(structure);
         this.deletedAt = deletedAt;
+        this.deleted = deletedAt != null;
         this.currentContentVersionId = LawDomainRules.requireIdentifier(
                 currentContentVersionId, "currentContentVersionId");
         this.currentAnnotationVersionId = currentAnnotationVersionId == null
@@ -105,8 +107,13 @@ public class LawDocument {
         if (deletedAt == null) {
             throw new IllegalArgumentException("删除时间不能为空");
         }
+        this.deleted = true;
         this.deletedAt = deletedAt;
         this.updatedAt = deletedAt;
+    }
+
+    public boolean isDeleted() {
+        return deleted || deletedAt != null;
     }
 
     public String getId() {
