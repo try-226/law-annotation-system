@@ -127,6 +127,8 @@ class AnnotationDraftControllerTests {
         when(service.clearArticle("task-1", "article-1", principal)).thenReturn(draftResponse());
         when(service.submitReview("task-1", principal)).thenReturn(new SubmitReviewResponse(
                 "task-1", "submission-1", TaskState.PENDING_REVIEW, AnnotationTestFixtures.NOW));
+        when(service.submitRereview("task-1", principal)).thenReturn(new SubmitReviewResponse(
+                "task-1", "submission-2", TaskState.PENDING_REREVIEW, AnnotationTestFixtures.NOW));
 
         mockMvc.perform(delete("/tasks/task-1/draft/overall")
                         .with(user(principal))
@@ -141,6 +143,11 @@ class AnnotationDraftControllerTests {
                         .with(csrf().asHeader()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.taskState").value("PENDING_REVIEW"));
+        mockMvc.perform(post("/tasks/task-1/submit-rereview")
+                        .with(user(principal))
+                        .with(csrf().asHeader()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.taskState").value("PENDING_REREVIEW"));
 
         mockMvc.perform(post("/tasks/task-1/submit-review").with(user(principal)))
                 .andExpect(status().isForbidden())

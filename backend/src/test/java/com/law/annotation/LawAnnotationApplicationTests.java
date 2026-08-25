@@ -3,6 +3,7 @@ package com.law.annotation;
 import com.law.annotation.annotation.TaskDraftRepository;
 import com.law.annotation.annotation.TaskSubmissionIndexInitializer;
 import com.law.annotation.annotation.TaskSubmissionRepository;
+import com.law.annotation.annotation.RereviewSubmissionIndexInitializer;
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
 import com.law.annotation.field.FieldConfigIndexInitializer;
 import com.law.annotation.field.FieldConfigRepository;
@@ -11,9 +12,13 @@ import com.law.annotation.law.LawDomainIndexInitializer;
 import com.law.annotation.law.LawRepository;
 import com.law.annotation.task.TaskIndexInitializer;
 import com.law.annotation.task.TaskRepository;
+import com.law.annotation.review.ReviewRoundIndexInitializer;
+import com.law.annotation.review.ReviewRoundRepository;
 import com.law.annotation.user.UserIndexInitializer;
 import com.law.annotation.user.UserRepository;
 import com.law.annotation.version.ContentVersionRepository;
+import com.law.annotation.version.AnnotationVersionIndexInitializer;
+import com.law.annotation.version.AnnotationVersionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration;
@@ -59,6 +64,12 @@ class LawAnnotationApplicationTests {
     private TaskSubmissionRepository taskSubmissionRepository;
 
     @MockitoBean
+    private ReviewRoundRepository reviewRoundRepository;
+
+    @MockitoBean
+    private AnnotationVersionRepository annotationVersionRepository;
+
+    @MockitoBean
     private MongoTemplate mongoTemplate;
 
     @MockitoBean
@@ -75,6 +86,15 @@ class LawAnnotationApplicationTests {
 
     @MockitoBean
     private TaskSubmissionIndexInitializer taskSubmissionIndexInitializer;
+
+    @MockitoBean
+    private RereviewSubmissionIndexInitializer rereviewSubmissionIndexInitializer;
+
+    @MockitoBean
+    private ReviewRoundIndexInitializer reviewRoundIndexInitializer;
+
+    @MockitoBean
+    private AnnotationVersionIndexInitializer annotationVersionIndexInitializer;
 
     @MockitoBean
     private BootstrapAdminRunner bootstrapAdminRunner;

@@ -12,6 +12,8 @@ import com.law.annotation.field.FixedAnnotationField;
 import com.law.annotation.task.TaskArticleSnapshot;
 import com.law.annotation.task.TaskDocument;
 import com.law.annotation.task.TaskStructureNodeSnapshot;
+import com.law.annotation.review.ReviewItemLocator;
+import com.law.annotation.review.ReviewScopeType;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,13 +73,28 @@ final class AnnotationDraftRules {
     }
 
     static List<ErrorLocator> missingRequired(TaskDocument task, TaskDraftDocument draft) {
+        List<ReviewItemLocator> fullScope = new ArrayList<>();
+        fullScope.add(ReviewItemLocator.overall());
+        task.getContentVersionSnapshot().articles().forEach(
+                article -> fullScope.add(ReviewItemLocator.article(article.articleId())));
+        return missingRequired(task, draft, fullScope);
+    }
+
+    static List<ErrorLocator> missingRequired(
+            TaskDocument task,
+            TaskDraftDocument draft,
+            List<ReviewItemLocator> scope) {
         List<ErrorLocator> locators = new ArrayList<>();
         OverallDraftValues overall = draft == null ? null : draft.getOverallDraft();
-        for (FieldConfigSnapshotItem item : task.getFieldConfigSnapshot().overall()) {
-            if (item.required() && !hasOverallValue(overall, item.fieldKey())) {
-                locators.add(new ErrorLocator(
-                        "overall." + item.fieldKey(),
-                        displayName(item.fieldKey(), FieldConfigScope.OVERALL) + "未填写"));
+        boolean includeOverall = scope.stream()
+                .anyMatch(item -> item.type() == ReviewScopeType.OVERALL);
+        if (includeOverall) {
+            for (FieldConfigSnapshotItem item : task.getFieldConfigSnapshot().overall()) {
+                if (item.required() && !hasOverallValue(overall, item.fieldKey())) {
+                    locators.add(new ErrorLocator(
+                            "overall." + item.fieldKey(),
+                            displayName(item.fieldKey(), FieldConfigScope.OVERALL) + "未填写"));
+                }
             }
         }
 
@@ -85,6 +102,12 @@ final class AnnotationDraftRules {
                 ? Map.of()
                 : draft.getPerArticleDrafts();
         for (TaskArticleSnapshot article : task.getContentVersionSnapshot().articles()) {
+            boolean included = scope.stream().anyMatch(item ->
+                    item.type() == ReviewScopeType.ARTICLE
+                            && article.articleId().equals(item.articleId()));
+            if (!included) {
+                continue;
+            }
             ArticleDraftValues values = articleDrafts.get(article.articleId());
             for (FieldConfigSnapshotItem item : task.getFieldConfigSnapshot().article()) {
                 if (item.required() && !hasArticleValue(values, item.fieldKey())) {

@@ -8,4 +8,8 @@ public interface TaskSubmissionRepository extends MongoRepository<TaskSubmission
     Optional<TaskSubmissionDocument> findByTaskIdAndSubmissionNo(
             String taskId,
             int submissionNo);
+
+    Optional<TaskSubmissionDocument> findBySourceReviewRoundId(String sourceReviewRoundId);
+
+    Optional<TaskSubmissionDocument> findTopByTaskIdOrderBySubmissionNoDesc(String taskId);
 }

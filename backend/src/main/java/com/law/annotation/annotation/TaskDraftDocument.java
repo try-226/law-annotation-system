@@ -13,6 +13,7 @@ public class TaskDraftDocument {
     private String taskId;
     private OverallDraftValues overallDraft;
     private Map<String, ArticleDraftValues> perArticleDrafts = new LinkedHashMap<>();
+    private Map<String, String> reviewSaveMarkers = new LinkedHashMap<>();
     private long revision;
     private String updatedBy;
     private Instant createdAt;
@@ -32,6 +33,7 @@ public class TaskDraftDocument {
         this.taskId = taskId;
         this.overallDraft = overallDraft;
         this.perArticleDrafts = new LinkedHashMap<>(perArticleDrafts);
+        this.reviewSaveMarkers = new LinkedHashMap<>();
         this.revision = revision;
         this.updatedBy = updatedBy;
         this.createdAt = createdAt;
@@ -48,6 +50,10 @@ public class TaskDraftDocument {
 
     public Map<String, ArticleDraftValues> getPerArticleDrafts() {
         return perArticleDrafts == null ? Map.of() : Map.copyOf(perArticleDrafts);
+    }
+
+    public Map<String, String> getReviewSaveMarkers() {
+        return reviewSaveMarkers == null ? Map.of() : Map.copyOf(reviewSaveMarkers);
     }
 
     public long getRevision() {

@@ -4,6 +4,7 @@ import com.law.annotation.annotation.dto.AnnotationProgressResponse;
 import com.law.annotation.annotation.dto.EditableScopeResponse;
 import com.law.annotation.annotation.dto.SaveArticleDraftRequest;
 import com.law.annotation.annotation.dto.SaveOverallDraftRequest;
+import com.law.annotation.annotation.dto.ReviewIssueFeedbackResponse;
 import com.law.annotation.annotation.dto.SubmitReviewResponse;
 import com.law.annotation.annotation.dto.TaskDraftResponse;
 import com.law.annotation.auth.AuthErrorCodes;
@@ -18,6 +19,10 @@ import com.law.annotation.task.TaskErrorCodes;
 import com.law.annotation.task.TaskRepository;
 import com.law.annotation.task.TaskService;
 import com.law.annotation.task.dto.TaskDetailResponse;
+import com.law.annotation.review.ReviewItemLocator;
+import com.law.annotation.review.ReviewRoundDocument;
+import com.law.annotation.review.ReviewScopeType;
+import com.law.annotation.review.ReviewService;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +35,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -42,6 +48,23 @@ public class AnnotationDraftService {
     private final TaskSubmissionRepository submissionRepository;
     private final TaskService taskService;
     private final MongoTemplate mongoTemplate;
+    private final ReviewService reviewService;
+
+    @Autowired
+    public AnnotationDraftService(
+            TaskRepository taskRepository,
+            TaskDraftRepository draftRepository,
+            TaskSubmissionRepository submissionRepository,
+            TaskService taskService,
+            MongoTemplate mongoTemplate,
+            ReviewService reviewService) {
+        this.taskRepository = taskRepository;
+        this.draftRepository = draftRepository;
+        this.submissionRepository = submissionRepository;
+        this.taskService = taskService;
+        this.mongoTemplate = mongoTemplate;
+        this.reviewService = reviewService;
+    }
 
     public AnnotationDraftService(
             TaskRepository taskRepository,
@@ -49,11 +72,8 @@ public class AnnotationDraftService {
             TaskSubmissionRepository submissionRepository,
             TaskService taskService,
             MongoTemplate mongoTemplate) {
-        this.taskRepository = taskRepository;
-        this.draftRepository = draftRepository;
-        this.submissionRepository = submissionRepository;
-        this.taskService = taskService;
-        this.mongoTemplate = mongoTemplate;
+        this(taskRepository, draftRepository, submissionRepository,
+                taskService, mongoTemplate, null);
     }
 
     public TaskDraftResponse getDraft(String taskId, UserPrincipal currentUser) {
@@ -67,17 +87,21 @@ public class AnnotationDraftService {
             SaveOverallDraftRequest request,
             UserPrincipal currentUser) {
         TaskDocument task = requireEditableOwnerTask(taskId, currentUser);
+        ReviewRoundDocument rejectedRound = editableRejectedRound(
+                task, ReviewItemLocator.overall());
         OverallDraftValues values = AnnotationDraftRules.normalizeOverall(request);
         Instant now = Instant.now();
+        Update update = new Update()
+                .setOnInsert("_id", task.getTaskId())
+                .setOnInsert("createdAt", now)
+                .set("overallDraft", values)
+                .set("updatedBy", currentUser.id())
+                .set("updatedAt", now)
+                .inc("revision", 1);
+        markRereviewSave(update, ReviewItemLocator.overall(), rejectedRound);
         mongoTemplate.upsert(
                 Query.query(Criteria.where("_id").is(task.getTaskId())),
-                new Update()
-                        .setOnInsert("_id", task.getTaskId())
-                        .setOnInsert("createdAt", now)
-                        .set("overallDraft", values)
-                        .set("updatedBy", currentUser.id())
-                        .set("updatedAt", now)
-                        .inc("revision", 1),
+                update,
                 TaskDraftDocument.class);
         return response(task, requireDraft(task.getTaskId()), currentUser);
     }
@@ -95,24 +119,30 @@ public class AnnotationDraftService {
                     AnnotationErrorCodes.ARTICLE_NOT_FOUND,
                     "任务快照中不存在该法条");
         }
+        ReviewItemLocator locator = ReviewItemLocator.article(validArticleId);
+        ReviewRoundDocument rejectedRound = editableRejectedRound(task, locator);
         ArticleDraftValues values = AnnotationDraftRules.normalizeArticle(request);
         Instant now = Instant.now();
+        Update update = new Update()
+                .setOnInsert("_id", task.getTaskId())
+                .setOnInsert("createdAt", now)
+                .set("perArticleDrafts." + validArticleId, values)
+                .set("updatedBy", currentUser.id())
+                .set("updatedAt", now)
+                .inc("revision", 1);
+        markRereviewSave(update, locator, rejectedRound);
         mongoTemplate.upsert(
                 Query.query(Criteria.where("_id").is(task.getTaskId())),
-                new Update()
-                        .setOnInsert("_id", task.getTaskId())
-                        .setOnInsert("createdAt", now)
-                        .set("perArticleDrafts." + validArticleId, values)
-                        .set("updatedBy", currentUser.id())
-                        .set("updatedAt", now)
-                        .inc("revision", 1),
+                update,
                 TaskDraftDocument.class);
         return response(task, requireDraft(task.getTaskId()), currentUser);
     }
 
     public TaskDraftResponse clearOverall(String taskId, UserPrincipal currentUser) {
         TaskDocument task = requireEditableOwnerTask(taskId, currentUser);
-        clearField(task, "overallDraft", currentUser.id());
+        ReviewItemLocator locator = ReviewItemLocator.overall();
+        ReviewRoundDocument rejectedRound = editableRejectedRound(task, locator);
+        clearField(task, "overallDraft", locator, rejectedRound, currentUser.id());
         return response(task, draftRepository.findById(task.getTaskId()).orElse(null), currentUser);
     }
 
@@ -128,7 +158,10 @@ public class AnnotationDraftService {
                     AnnotationErrorCodes.ARTICLE_NOT_FOUND,
                     "任务快照中不存在该法条");
         }
-        clearField(task, "perArticleDrafts." + validArticleId, currentUser.id());
+        ReviewItemLocator locator = ReviewItemLocator.article(validArticleId);
+        ReviewRoundDocument rejectedRound = editableRejectedRound(task, locator);
+        clearField(task, "perArticleDrafts." + validArticleId,
+                locator, rejectedRound, currentUser.id());
         return response(task, draftRepository.findById(task.getTaskId()).orElse(null), currentUser);
     }
 
@@ -175,6 +208,71 @@ public class AnnotationDraftService {
         }
     }
 
+    public SubmitReviewResponse submitRereview(String taskId, UserPrincipal currentUser) {
+        TaskDocument task = requireOwnerTask(taskId, currentUser);
+        if (task.getTaskType() != TaskType.ORDINARY
+                || task.getTaskState() != TaskState.PARTIALLY_REJECTED
+                || reviewService == null) {
+            throw notEditable();
+        }
+        ReviewRoundDocument rejectedRound = reviewService.requireRejectedRoundForEditing(task);
+        List<ReviewItemLocator> issueScope = rejectedRound.getRequiredScope().stream()
+                .filter(locator -> rejectedRound.getIssues().containsKey(locator.storageKey()))
+                .toList();
+        if (issueScope.isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    AnnotationErrorCodes.TASK_NOT_EDITABLE,
+                    "当前驳回轮次没有待修改问题");
+        }
+
+        TaskDraftDocument draft = draftRepository.findById(task.getTaskId()).orElse(null);
+        List<ErrorLocator> notResaved = issueScope.stream()
+                .filter(locator -> draft == null
+                        || !rejectedRound.getReviewRoundId().equals(
+                                draft.getReviewSaveMarkers().get(locator.storageKey())))
+                .map(locator -> new ErrorLocator(
+                        rereviewLocatorPath(locator),
+                        "该驳回项尚未在本轮修改后保存"))
+                .toList();
+        if (!notResaved.isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    AnnotationErrorCodes.REREVIEW_SCOPE_NOT_RESAVED,
+                    "所有驳回项都必须重新保存后才能提交复审",
+                    notResaved);
+        }
+        List<ErrorLocator> missing = AnnotationDraftRules.missingRequired(
+                task, draft, issueScope);
+        if (!missing.isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    AnnotationErrorCodes.SUBMISSION_INCOMPLETE,
+                    "复审修改范围内仍有必填标注未完成",
+                    missing);
+        }
+
+        TaskSubmissionDocument submission = prepareRereviewSubmission(
+                task, draft, rejectedRound, issueScope, currentUser.id());
+        try {
+            TaskDetailResponse updated = taskService.submitRereview(
+                    task.getTaskId(),
+                    currentUser.id(),
+                    rejectedRound.getReviewRoundId(),
+                    submission.getSubmissionId());
+            return submitResponse(submission, updated.taskState());
+        } catch (ApiException exception) {
+            reconcileRereviewSubmissionOutcome(task.getTaskId(), submission, exception);
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (reconcileRereviewSubmissionOutcome(
+                    task.getTaskId(), submission, exception)) {
+                return submitResponse(submission, TaskState.PENDING_REREVIEW);
+            }
+            throw exception;
+        }
+    }
+
     private TaskSubmissionDocument prepareInitialSubmission(
             TaskDocument task,
             TaskDraftDocument draft,
@@ -195,6 +293,42 @@ public class AnnotationDraftService {
             return submissionRepository.findByTaskIdAndSubmissionNo(
                             task.getTaskId(), INITIAL_SUBMISSION_NO)
                     .orElseThrow(AnnotationDraftService::alreadySubmitted);
+        }
+    }
+
+    private TaskSubmissionDocument prepareRereviewSubmission(
+            TaskDocument task,
+            TaskDraftDocument draft,
+            ReviewRoundDocument rejectedRound,
+            List<ReviewItemLocator> modifiedScope,
+            String submittedBy) {
+        TaskSubmissionDocument existing = submissionRepository
+                .findBySourceReviewRoundId(rejectedRound.getReviewRoundId())
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        int nextSubmissionNo = submissionRepository
+                .findTopByTaskIdOrderBySubmissionNoDesc(task.getTaskId())
+                .map(submission -> submission.getSubmissionNo() + 1)
+                .orElse(2);
+        TaskSubmissionDocument candidate = new TaskSubmissionDocument(
+                UUID.randomUUID().toString(),
+                task.getTaskId(),
+                nextSubmissionNo,
+                draft.getRevision(),
+                draft.getOverallDraft(),
+                orderedArticleSnapshots(task, draft),
+                rejectedRound.getReviewRoundId(),
+                modifiedScope,
+                submittedBy,
+                Instant.now());
+        try {
+            return submissionRepository.insert(candidate);
+        } catch (DuplicateKeyException exception) {
+            return submissionRepository.findBySourceReviewRoundId(
+                            rejectedRound.getReviewRoundId())
+                    .orElseThrow(() -> exception);
         }
     }
 
@@ -227,6 +361,31 @@ public class AnnotationDraftService {
         return false;
     }
 
+    private boolean reconcileRereviewSubmissionOutcome(
+            String taskId,
+            TaskSubmissionDocument submission,
+            RuntimeException originalFailure) {
+        TaskDocument current;
+        try {
+            current = taskRepository.findById(taskId).orElse(null);
+        } catch (RuntimeException reconciliationFailure) {
+            originalFailure.addSuppressed(reconciliationFailure);
+            return false;
+        }
+        boolean committed = current != null
+                && current.getTaskState() == TaskState.PENDING_REREVIEW
+                && Objects.equals(current.getCurrentSubmissionId(), submission.getSubmissionId());
+        if (committed) {
+            return true;
+        }
+        try {
+            submissionRepository.deleteById(submission.getSubmissionId());
+        } catch (RuntimeException cleanupFailure) {
+            originalFailure.addSuppressed(cleanupFailure);
+        }
+        return false;
+    }
+
     private static SubmitReviewResponse submitResponse(
             TaskSubmissionDocument submission,
             TaskState taskState) {
@@ -237,16 +396,23 @@ public class AnnotationDraftService {
                 submission.getSubmittedAt());
     }
 
-    private void clearField(TaskDocument task, String field, String actorId) {
+    private void clearField(
+            TaskDocument task,
+            String field,
+            ReviewItemLocator locator,
+            ReviewRoundDocument rejectedRound,
+            String actorId) {
         if (draftRepository.existsById(task.getTaskId())) {
             Instant now = Instant.now();
+            Update update = new Update()
+                    .unset(field)
+                    .set("updatedBy", actorId)
+                    .set("updatedAt", now)
+                    .inc("revision", 1);
+            markRereviewSave(update, locator, rejectedRound);
             mongoTemplate.updateFirst(
                     Query.query(Criteria.where("_id").is(task.getTaskId())),
-                    new Update()
-                            .unset(field)
-                            .set("updatedBy", actorId)
-                            .set("updatedAt", now)
-                            .inc("revision", 1),
+                    update,
                     TaskDraftDocument.class);
         }
     }
@@ -263,19 +429,48 @@ public class AnnotationDraftService {
                 && currentUser.role() == Role.ANNOTATOR
                 && currentUser.id().equals(task.getAnnotatorId())
                 && task.getTaskType() == TaskType.ORDINARY
-                && task.getTaskState() == TaskState.ANNOTATING;
-        List<String> editableArticleIds = ownerCanEdit
-                ? task.getContentVersionSnapshot().articles().stream()
-                        .map(article -> article.articleId())
-                        .toList()
-                : List.of();
+                && (task.getTaskState() == TaskState.ANNOTATING
+                        || task.getTaskState() == TaskState.PARTIALLY_REJECTED);
+        ReviewRoundDocument rejectedRound = task.getTaskState() == TaskState.PARTIALLY_REJECTED
+                && reviewService != null
+                ? reviewService.requireRejectedRoundForEditing(task)
+                : null;
+        boolean overallEditable = ownerCanEdit && (rejectedRound == null
+                || rejectedRound.getIssues().containsKey(
+                        ReviewItemLocator.overall().storageKey()));
+        List<String> editableArticleIds;
+        if (!ownerCanEdit) {
+            editableArticleIds = List.of();
+        } else if (rejectedRound == null) {
+            editableArticleIds = task.getContentVersionSnapshot().articles().stream()
+                    .map(article -> article.articleId())
+                    .toList();
+        } else {
+            editableArticleIds = rejectedRound.getRequiredScope().stream()
+                    .filter(locator -> locator.type() == ReviewScopeType.ARTICLE)
+                    .filter(locator -> rejectedRound.getIssues()
+                            .containsKey(locator.storageKey()))
+                    .map(ReviewItemLocator::articleId)
+                    .toList();
+        }
+        List<ReviewIssueFeedbackResponse> feedback = rejectedRound == null
+                ? List.of()
+                : rejectedRound.getRequiredScope().stream()
+                        .filter(locator -> rejectedRound.getIssues()
+                                .containsKey(locator.storageKey()))
+                        .map(locator -> new ReviewIssueFeedbackResponse(
+                                rejectedRound.getReviewRoundId(),
+                                locator,
+                                rejectedRound.getIssues().get(locator.storageKey()).reason()))
+                        .toList();
         return new TaskDraftResponse(
                 task.getTaskId(),
                 task.getTaskState(),
                 draft == null ? null : draft.getOverallDraft(),
                 articleDrafts,
-                new EditableScopeResponse(ownerCanEdit, editableArticleIds),
+                new EditableScopeResponse(overallEditable, editableArticleIds),
                 progress,
+                feedback,
                 draft == null ? 0 : draft.getRevision(),
                 draft == null ? null : draft.getUpdatedAt());
     }
@@ -307,10 +502,38 @@ public class AnnotationDraftService {
     private TaskDocument requireEditableOwnerTask(String taskId, UserPrincipal currentUser) {
         TaskDocument task = requireOwnerTask(taskId, currentUser);
         if (task.getTaskType() != TaskType.ORDINARY
-                || task.getTaskState() != TaskState.ANNOTATING) {
+                || (task.getTaskState() != TaskState.ANNOTATING
+                        && task.getTaskState() != TaskState.PARTIALLY_REJECTED)) {
             throw notEditable();
         }
         return task;
+    }
+
+    private ReviewRoundDocument editableRejectedRound(
+            TaskDocument task,
+            ReviewItemLocator locator) {
+        if (task.getTaskState() == TaskState.ANNOTATING) {
+            return null;
+        }
+        if (reviewService == null) {
+            throw notEditable();
+        }
+        ReviewRoundDocument round = reviewService.requireRejectedRoundForEditing(task);
+        if (!round.getIssues().containsKey(locator.storageKey())) {
+            throw notEditable();
+        }
+        return round;
+    }
+
+    private static void markRereviewSave(
+            Update update,
+            ReviewItemLocator locator,
+            ReviewRoundDocument rejectedRound) {
+        if (rejectedRound != null) {
+            update.set(
+                    "reviewSaveMarkers." + locator.storageKey(),
+                    rejectedRound.getReviewRoundId());
+        }
     }
 
     private TaskDraftDocument requireDraft(String taskId) {
@@ -339,6 +562,12 @@ public class AnnotationDraftService {
             throw validation(path, "须为1至100个字符且不得包含控制字符");
         }
         return normalized;
+    }
+
+    private static String rereviewLocatorPath(ReviewItemLocator locator) {
+        return locator.type() == ReviewScopeType.OVERALL
+                ? "overall"
+                : "articles." + locator.articleId();
     }
 
     private static ApiException taskNotFound() {

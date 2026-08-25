@@ -74,4 +74,11 @@ public class AnnotationDraftController {
             @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.success(annotationDraftService.submitReview(taskId, principal));
     }
+
+    @PostMapping("/submit-rereview")
+    public ApiResponse<SubmitReviewResponse> submitRereview(
+            @PathVariable String taskId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.success(annotationDraftService.submitRereview(taskId, principal));
+    }
 }
