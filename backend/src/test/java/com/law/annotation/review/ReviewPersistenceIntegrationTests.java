@@ -239,6 +239,43 @@ class ReviewPersistenceIntegrationTests {
     }
 
     @Test
+    void approvedCompletionRejectsChangedLawContentVersionBeforeFormalSideEffects() {
+        UserPrincipal reviewer = admin("admin-1");
+        String roundId = reviewService.start("task-1", reviewer).reviewRoundId();
+        reviewService.check("task-1", roundId, ReviewItemLocator.overall(), reviewer);
+        reviewService.check(
+                "task-1", roundId, ReviewItemLocator.article("article-1"), reviewer);
+        reviewService.check(
+                "task-1", roundId, ReviewItemLocator.article("article-2"), reviewer);
+        LawDocument before = mongoTemplate.findById("law-1", LawDocument.class);
+        assertThat(before).isNotNull();
+        String previousAnnotationVersionId = before.getCurrentAnnotationVersionId();
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is("law-1")),
+                new Update().set("currentContentVersionId", "content-2"),
+                LawDocument.class);
+
+        assertThatThrownBy(() -> reviewService.complete("task-1", roundId, reviewer))
+                .isInstanceOf(ApiException.class)
+                .satisfies(error -> {
+                    ApiException exception = (ApiException) error;
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(exception.getCode()).isEqualTo(
+                            ReviewErrorCodes.COMPLETION_CONFLICT);
+                });
+
+        assertThat(mongoTemplate.count(new Query(), AnnotationVersionDocument.class)).isZero();
+        LawDocument currentLaw = mongoTemplate.findById("law-1", LawDocument.class);
+        assertThat(currentLaw).isNotNull();
+        assertThat(currentLaw.getCurrentAnnotationVersionId())
+                .isEqualTo(previousAnnotationVersionId);
+        assertThat(taskRepository.findById("task-1").orElseThrow().getTaskState())
+                .isEqualTo(TaskState.PENDING_REVIEW);
+        assertThat(roundRepository.findById(roundId).orElseThrow().getAnnotationVersionId())
+                .isNull();
+    }
+
+    @Test
     void approvedCompletionUsesFrozenSubmissionAndDuplicateCreatesNoSecondVersion() {
         UserPrincipal reviewer = admin("admin-1");
         String roundId = reviewService.start("task-1", reviewer).reviewRoundId();

@@ -346,10 +346,13 @@ public class ReviewService {
             throw sourceInvalid("审核完成意图缺少结果");
         }
         if (outcome == ReviewRoundOutcome.APPROVED) {
-            AnnotationVersionDocument version = ensureAnnotationVersion(originalTask, round);
-            ensureRoundAnnotationVersion(round, version);
-            ensureLawAnnotationReference(originalTask, version);
-            ensureTaskApproved(originalTask, round, version);
+            ApprovedCompletionContext context = validateApprovedCompletionPreconditions(
+                    originalTask,
+                    round);
+            AnnotationVersionDocument version = ensureAnnotationVersion(context);
+            ensureRoundAnnotationVersion(context.round(), version);
+            ensureLawAnnotationReference(context.task(), version);
+            ensureTaskApproved(context.task(), context.round(), version);
         } else {
             ensureTaskRejected(originalTask, round);
         }
@@ -367,18 +370,91 @@ public class ReviewService {
         }
     }
 
-    private AnnotationVersionDocument ensureAnnotationVersion(
-            TaskDocument task,
-            ReviewRoundDocument round) {
+    private ApprovedCompletionContext validateApprovedCompletionPreconditions(
+            TaskDocument originalTask,
+            ReviewRoundDocument completionIntent) {
+        TaskDocument task = requireTask(originalTask.getTaskId());
+        ReviewRoundDocument round = requireRound(task, completionIntent.getReviewRoundId());
+        if (round.getCompletedAt() != null) {
+            throw alreadyCompleted();
+        }
+        if (round.getCompletionOutcome() != ReviewRoundOutcome.APPROVED
+                || round.getCompletionStartedAt() == null
+                || !Objects.equals(
+                        round.getCompletionStartedAt(),
+                        completionIntent.getCompletionStartedAt())
+                || !Objects.equals(
+                        round.getSourceSubmissionId(),
+                        completionIntent.getSourceSubmissionId())
+                || round.getRoundNo() != completionIntent.getRoundNo()
+                || round.getRoundType() != completionIntent.getRoundType()
+                || !Objects.equals(round.getReviewerId(), completionIntent.getReviewerId())
+                || round.getUnreviewedCount() != 0
+                || round.getNeedsChangeCount() != 0) {
+            throw completionConflict("审核完成意图已变化，无法完成审核");
+        }
+        TaskState expectedState = expectedPendingState(round);
+        if ((task.getTaskState() != expectedState && task.getTaskState() != TaskState.APPROVED)
+                || !Objects.equals(task.getLawId(), round.getLawId())
+                || !Objects.equals(task.getCurrentReviewRoundId(), round.getReviewRoundId())
+                || !Objects.equals(task.getCurrentSubmissionId(), round.getSourceSubmissionId())) {
+            throw completionConflict("任务、当前审核轮次或当前冻结提交已变化，无法完成审核");
+        }
+
+        TaskSubmissionDocument submission = requireSubmission(
+                task,
+                round.getSourceSubmissionId());
+        if (submission.getSubmissionNo() != round.getRoundNo()) {
+            throw completionConflict("当前审核轮次与冻结提交序号不一致，无法完成审核");
+        }
+        validateFrozenSubmission(task, submission);
+
+        LawDocument law = mongoTemplate.findById(task.getLawId(), LawDocument.class);
+        if (law == null
+                || !Objects.equals(
+                        law.getCurrentContentVersionId(),
+                        task.getContentVersionId())) {
+            throw completionConflict("法律当前内容版本与任务内容版本不一致，无法完成审核");
+        }
+
         AnnotationVersionDocument existing = annotationVersionRepository
                 .findBySourceTaskId(task.getTaskId())
                 .orElse(null);
         if (existing != null) {
-            validateExistingAnnotationVersion(existing, task, round);
-            return existing;
+            validateExistingAnnotationVersion(existing, task, round, submission);
         }
-        TaskSubmissionDocument submission = requireSubmission(task, round.getSourceSubmissionId());
-        validateFrozenSubmission(task, submission);
+        if (round.getAnnotationVersionId() != null
+                && (existing == null
+                        || !Objects.equals(round.getAnnotationVersionId(), existing.getId()))) {
+            throw completionConflict("审核轮次的正式标注引用与完成意图不一致");
+        }
+        if (law.getCurrentAnnotationVersionId() != null
+                && (existing == null
+                        || !Objects.equals(
+                                law.getCurrentAnnotationVersionId(),
+                                existing.getId()))) {
+            throw completionConflict("法律当前正式标注引用与完成意图不一致");
+        }
+        if (task.getTaskState() == TaskState.APPROVED) {
+            if (existing == null
+                    || !Objects.equals(task.getApprovedAnnotationVersionId(), existing.getId())) {
+                throw completionConflict("任务已通过但正式标注引用与完成意图不一致");
+            }
+        } else if (task.getApprovedAnnotationVersionId() != null) {
+            throw completionConflict("待审核任务不应存在正式标注引用");
+        }
+
+        return new ApprovedCompletionContext(task, round, submission, existing);
+    }
+
+    private AnnotationVersionDocument ensureAnnotationVersion(
+            ApprovedCompletionContext context) {
+        TaskDocument task = context.task();
+        ReviewRoundDocument round = context.round();
+        TaskSubmissionDocument submission = context.submission();
+        if (context.existingVersion() != null) {
+            return context.existingVersion();
+        }
         for (int attempt = 0; attempt < MAX_ANNOTATION_VERSION_INSERT_ATTEMPTS; attempt++) {
             int nextSeq = annotationVersionRepository.findTopByLawIdOrderBySeqDesc(task.getLawId())
                     .map(version -> version.getSeq() + 1)
@@ -401,7 +477,7 @@ public class ReviewService {
                         .findBySourceTaskId(task.getTaskId())
                         .orElse(null);
                 if (byTask != null) {
-                    validateExistingAnnotationVersion(byTask, task, round);
+                    validateExistingAnnotationVersion(byTask, task, round, submission);
                     return byTask;
                 }
             }
@@ -591,6 +667,13 @@ public class ReviewService {
     private static void validateFrozenSubmission(
             TaskDocument task,
             TaskSubmissionDocument submission) {
+        if (task.getContentVersionSnapshot() == null
+                || !Objects.equals(
+                        task.getContentVersionId(),
+                        task.getContentVersionSnapshot().contentVersionId())
+                || task.getContentVersionSnapshot().articles() == null) {
+            throw sourceInvalid("任务内容版本引用与任务快照不一致");
+        }
         if (submission.getOverallSnapshot() == null) {
             throw sourceInvalid("冻结提交缺少整体标注");
         }
@@ -606,14 +689,17 @@ public class ReviewService {
     private static void validateExistingAnnotationVersion(
             AnnotationVersionDocument version,
             TaskDocument task,
-            ReviewRoundDocument round) {
-        if (!Objects.equals(version.getLawId(), task.getLawId())
+            ReviewRoundDocument round,
+            TaskSubmissionDocument submission) {
+        if (!Objects.equals(version.getSourceTaskId(), task.getTaskId())
+                || !Objects.equals(version.getLawId(), task.getLawId())
                 || !Objects.equals(version.getContentVersionId(), task.getContentVersionId())
-                || !Objects.equals(version.getSourceSubmissionId(), round.getSourceSubmissionId())) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    ReviewErrorCodes.COMPLETION_CONFLICT,
-                    "已有正式标注版本与本次完成意图不一致");
+                || !Objects.equals(version.getSourceSubmissionId(), round.getSourceSubmissionId())
+                || !Objects.equals(version.getApprovedBy(), round.getReviewerId())
+                || !Objects.equals(version.getApprovedAt(), round.getCompletionStartedAt())
+                || !Objects.equals(version.getOverallResult(), submission.getOverallSnapshot())
+                || !Objects.equals(version.getArticleResults(), submission.getArticleSnapshots())) {
+            throw completionConflict("已有正式标注版本与本次完成意图不一致");
         }
     }
 
@@ -797,10 +883,14 @@ public class ReviewService {
     }
 
     private static ApiException writeConflict() {
+        return completionConflict("审核状态已变化，请刷新后重试");
+    }
+
+    private static ApiException completionConflict(String message) {
         return new ApiException(
                 HttpStatus.CONFLICT,
                 ReviewErrorCodes.COMPLETION_CONFLICT,
-                "审核状态已变化，请刷新后重试");
+                message);
     }
 
     private static ApiException validation(String path, String message) {
@@ -820,5 +910,12 @@ public class ReviewService {
     }
 
     private record ReviewContext(TaskDocument task, ReviewRoundDocument round) {
+    }
+
+    private record ApprovedCompletionContext(
+            TaskDocument task,
+            ReviewRoundDocument round,
+            TaskSubmissionDocument submission,
+            AnnotationVersionDocument existingVersion) {
     }
 }
