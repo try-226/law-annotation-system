@@ -28,6 +28,11 @@ function taskErrorMessage(error: unknown, fallback: string): string {
   return parseFailure(error).userMessage || safeErrorMessage(error, fallback)
 }
 
+function workbenchActionLabel(state: TaskState): string {
+  // PR13 尚无部分驳回问题项的 editableScope；此处只局部显示“查看”，不改变长期业务语义。
+  return state === 'PARTIALLY_REJECTED' ? '查看' : ANNOTATOR_TASK_ACTION_LABELS[state]
+}
+
 async function loadTasks(): Promise<void> {
   const sequence = ++requestSequence
   loading.value = true
@@ -66,9 +71,8 @@ async function start(task: TaskListItem): Promise<void> {
   startingTaskId.value = task.taskId
   try {
     await startTask(task.taskId)
-    await loadTasks()
     notify('任务已开始', 'success')
-    await router.push({ name: 'my-task-detail', params: { taskId: task.taskId } })
+    await router.push({ name: 'annotation-workbench', params: { taskId: task.taskId } })
   } catch (error: unknown) {
     notify(taskErrorMessage(error, '开始任务失败，请稍后重试'), 'error')
     await loadTasks()
@@ -110,8 +114,8 @@ onMounted(loadTasks)
               <td><strong>{{ task.taskName }}</strong><small v-if="task.remark" class="secondary-copy">有任务备注</small></td><td>{{ TASK_TYPE_LABELS[task.taskType] }}</td><td>{{ task.lawName }}</td>
               <td><TaskStatusBadge :state="task.taskState" /></td><td>{{ formatTaskDateTime(task.createdAt) }}</td>
               <td class="actions">
-                <button v-if="task.taskState === 'PENDING_ANNOTATION'" class="button button--text" type="button" :disabled="Boolean(startingTaskId)" @click="start(task)"><span v-if="startingTaskId === task.taskId" class="spinner" />{{ startingTaskId === task.taskId ? '开始中…' : ANNOTATOR_TASK_ACTION_LABELS[task.taskState] }}</button>
-                <RouterLink v-else class="button button--text" :to="{ name: 'my-task-detail', params: { taskId: task.taskId } }">{{ ANNOTATOR_TASK_ACTION_LABELS[task.taskState] }}</RouterLink>
+                <button v-if="task.taskState === 'PENDING_ANNOTATION'" class="button button--text" type="button" :disabled="Boolean(startingTaskId)" @click="start(task)"><span v-if="startingTaskId === task.taskId" class="spinner" />{{ startingTaskId === task.taskId ? '开始中…' : '开始标注' }}</button>
+                <RouterLink v-else class="button button--text" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ workbenchActionLabel(task.taskState) }}</RouterLink>
               </td>
             </tr>
           </tbody>
