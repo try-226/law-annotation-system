@@ -55,7 +55,7 @@ class LawDisplayStatusResolverTests {
                 law("law-5", false, null)));
 
         assertThat(statuses)
-                .containsEntry("law-1", LawDisplayStatus.PENDING_ANNOTATION)
+                .containsEntry("law-1", LawDisplayStatus.ANNOTATING)
                 .containsEntry("law-2", LawDisplayStatus.ANNOTATING)
                 .containsEntry("law-3", LawDisplayStatus.PENDING_REVIEW)
                 .containsEntry("law-4", LawDisplayStatus.PARTIALLY_REJECTED)

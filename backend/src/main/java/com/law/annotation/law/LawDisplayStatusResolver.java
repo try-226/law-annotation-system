@@ -72,8 +72,7 @@ public class LawDisplayStatusResolver {
 
     private static LawDisplayStatus fromOrdinaryTaskState(TaskState state) {
         return switch (state) {
-            case PENDING_ANNOTATION -> LawDisplayStatus.PENDING_ANNOTATION;
-            case ANNOTATING -> LawDisplayStatus.ANNOTATING;
+            case PENDING_ANNOTATION, ANNOTATING -> LawDisplayStatus.ANNOTATING;
             case PENDING_REVIEW -> LawDisplayStatus.PENDING_REVIEW;
             case PARTIALLY_REJECTED -> LawDisplayStatus.PARTIALLY_REJECTED;
             case PENDING_REREVIEW -> LawDisplayStatus.PENDING_REREVIEW;

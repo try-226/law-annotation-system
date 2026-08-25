@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.law.annotation.common.enums.ValidityStatus;
@@ -72,6 +73,7 @@ class LawImportServiceTests {
                         "preview-article-1", "第一条", "正文", 0)));
 
         assertThat(service.confirm(request, "admin-1").currentContentVersionId()).isEqualTo("c1");
+        verifyNoInteractions(parser);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<LawStructureNode>> structureCaptor = ArgumentCaptor.forClass(List.class);

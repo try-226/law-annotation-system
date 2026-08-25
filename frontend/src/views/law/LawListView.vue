@@ -19,7 +19,6 @@ const statusLabels: Record<ValidityStatus, string> = {
 }
 const displayStatusLabels: Record<LawDisplayStatus, string> = {
   UNANNOTATED: '未标注',
-  PENDING_ANNOTATION: '待标注',
   ANNOTATING: '标注中',
   PENDING_REVIEW: '待审核',
   PARTIALLY_REJECTED: '部分驳回',
@@ -50,11 +49,11 @@ onMounted(() => { void load() })
 <template>
   <section class="law-page">
     <div class="page-title">
-      <div><h1>法律管理</h1><p class="muted">查看、导入和维护法律基础数据</p></div>
+      <div><h1>法律管理</h1><p class="muted">查看、录入和维护法律基础数据</p></div>
       <div class="actions">
         <RouterLink class="button secondary" :to="{ name: 'field-config' }">字段配置</RouterLink>
         <RouterLink class="button secondary" :to="{ name: 'law-recycle' }">回收站</RouterLink>
-        <RouterLink class="button" :to="{ name: 'law-import' }">导入法律</RouterLink>
+        <RouterLink class="button" :to="{ name: 'law-import' }">录入法律</RouterLink>
       </div>
     </div>
     <div class="card">

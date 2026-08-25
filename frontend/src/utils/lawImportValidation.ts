@@ -9,6 +9,7 @@ import type {
 
 const ARTICLE_NUMBER_PATTERN = /^第(?:[零〇一二三四五六七八九十百千万两]+|[1-9]\d*)条$/u
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F-\u009F]/u
+export const MAX_FULL_TEXT_PASTE_LENGTH = 500_000
 const VALIDITY_STATUSES: ReadonlySet<ValidityStatus> = new Set([
   'ACTIVE',
   'NOT_EFFECTIVE',
@@ -50,6 +51,7 @@ export function currentImportValidationIssues(preview: LawImportPreview): LawVal
     issues.push(issue('FRONTEND.ARTICLES_REQUIRED', 'articles', '首次创建法律至少需要一条法条'))
   }
   const seenNumbers = new Set<string>()
+  const seenOrders = new Set<number>()
   preview.articles.forEach((article, index) => {
     const numberPath = `articles[${index}].number`
     const numberLength = codePointLength(article.number)
@@ -73,6 +75,17 @@ export function currentImportValidationIssues(preview: LawImportPreview): LawVal
     }
     seenNumbers.add(article.number)
 
+    if (seenOrders.has(article.order)) {
+      issues.push(articleIssue(
+        'FRONTEND.DUPLICATE_ARTICLE_ORDER',
+        `articles[${index}].order`,
+        index,
+        article.number,
+        '同一法律内容版本内法条顺序不能重复',
+      ))
+    }
+    seenOrders.add(article.order)
+
     const normalizedBody = normalizeArticleBody(article.body)
     const bodyLength = codePointLength(normalizedBody)
     if (bodyLength < 1 || bodyLength > 20_000 || normalizedBody.trim().length === 0) {
@@ -87,6 +100,20 @@ export function currentImportValidationIssues(preview: LawImportPreview): LawVal
     validateOrder(article.order, `articles[${index}].order`, issues, index, article.number)
   })
   return issues
+}
+
+export function fullTextPasteLength(value: string): number {
+  return codePointLength(value)
+}
+
+export function fullTextPasteError(value: string): string {
+  return fullTextPasteLength(value) > MAX_FULL_TEXT_PASTE_LENGTH
+    ? '粘贴内容超过500000个字符，请改用文件导入。'
+    : ''
+}
+
+export function nextArticleOrder(articles: ReadonlyArray<{ order: number }>): number {
+  return articles.reduce((maximum, article) => Math.max(maximum, article.order), -1) + 1
 }
 
 export function isRecomputableParseIssue(issue: LawValidationIssue): boolean {

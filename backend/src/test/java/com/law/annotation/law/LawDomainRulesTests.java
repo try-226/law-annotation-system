@@ -64,6 +64,17 @@ class LawDomainRulesTests {
     }
 
     @Test
+    void rejectsDuplicateOrderInsideOneSemanticSnapshot() {
+        ArticleSnapshot first = ArticleSnapshot.createNew("第一条", "正文一", 0);
+        ArticleSnapshot duplicateOrder = ArticleSnapshot.createNew("第二条", "正文二", 0);
+
+        assertThatThrownBy(() -> new ContentVersionDocument(
+                        "c1", "law-1", 1, List.of(first, duplicateOrder), "user-1", Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("条文顺序不能重复");
+    }
+
+    @Test
     void pendingChangeCategoriesAreDisjoint() {
         assertThatThrownBy(() -> new PendingChangeSet(
                         Set.of("a1"), Set.of("a1"), Set.of()))

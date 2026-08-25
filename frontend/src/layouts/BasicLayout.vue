@@ -45,7 +45,7 @@ async function handleLogout(): Promise<void> {
           <span>§</span>法律管理
         </RouterLink>
         <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-import' }" class="nav-item">
-          <span>＋</span>导入法律
+          <span>＋</span>录入法律
         </RouterLink>
         <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'field-config' }" class="nav-item">
           <span>⚙</span>字段配置

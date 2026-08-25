@@ -30,6 +30,7 @@ import {
 } from '../../types/task'
 import { formatDateTimeToMinute } from '../../utils/dateTime'
 import { locatorValidationMessage } from '../../utils/errors'
+import { nextArticleOrder } from '../../utils/lawImportValidation'
 
 interface TreeRow {
   node: LawStructureNode
@@ -67,7 +68,7 @@ const base = reactive<LawBaseInfo>({
   publicationDate: '',
   validityStatus: 'ACTIVE',
 })
-const newArticle = reactive({ number: '', body: '', order: 0 })
+const newArticle = reactive({ number: '', body: '', order: nextArticleOrder([]) })
 
 const validityLabels: Record<ValidityStatus, string> = {
   ACTIVE: '现行有效',
@@ -90,7 +91,6 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
 
 const displayStatusLabels: Record<LawDisplayStatus, string> = {
   UNANNOTATED: '未标注',
-  PENDING_ANNOTATION: '待标注',
   ANNOTATING: '标注中',
   PENDING_REVIEW: '待审核',
   PARTIALLY_REJECTED: '部分驳回',
@@ -100,7 +100,6 @@ const displayStatusLabels: Record<LawDisplayStatus, string> = {
   REVISING: '修订中',
 }
 const activeTaskDisplayStatuses: ReadonlySet<LawDisplayStatus> = new Set([
-  'PENDING_ANNOTATION',
   'ANNOTATING',
   'PENDING_REVIEW',
   'PARTIALLY_REJECTED',
@@ -202,6 +201,15 @@ const selectedStructureTitle = computed(() => (
 const displayStatus = computed(() => (
   detail.value ? displayStatusLabels[detail.value.displayStatus] : ''
 ))
+const newArticleOrderError = computed(() => {
+  if (!Number.isInteger(newArticle.order) || newArticle.order < 0 || newArticle.order > 2_147_483_647) {
+    return '顺序必须是0至2147483647之间的整数'
+  }
+  if (detail.value?.articles.some((article) => article.order === newArticle.order)) {
+    return '当前顺序已被其他法条使用'
+  }
+  return ''
+})
 
 function sync(value: LawDetail, resetTree = false) {
   detail.value = value
@@ -219,6 +227,9 @@ function sync(value: LawDetail, resetTree = false) {
     order: node.order,
     articleRefs: [...node.articleIds],
   }))
+  if (!newArticle.number.trim() && !newArticle.body.trim()) {
+    newArticle.order = nextArticleOrder(value.articles)
+  }
   if (resetTree) {
     expandedNodeIds.value = new Set(value.structure.map((node) => node.nodeId))
   }
@@ -296,14 +307,25 @@ function removeStructureNode(nodeId: string) {
 }
 
 async function createArticle() {
+  if (newArticleOrderError.value) {
+    error.value = newArticleOrderError.value
+    return
+  }
   await run('new-article', () => addLawArticle(lawId, newArticle))
   if (!error.value) {
     Object.assign(newArticle, {
       number: '',
       body: '',
-      order: detail.value?.articles.length ?? 0,
+      order: nextArticleOrder(detail.value?.articles ?? []),
     })
   }
+}
+
+function prepareNewArticle(event: Event) {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLDetailsElement) || !target.open) return
+  if (newArticle.number.trim() || newArticle.body.trim()) return
+  newArticle.order = nextArticleOrder(detail.value?.articles ?? [])
 }
 
 async function removeArticle(articleId: string) {
@@ -696,7 +718,7 @@ onMounted(() => { void load() })
             </div>
           </details>
 
-          <details class="maintenance-panel">
+          <details class="maintenance-panel" @toggle="prepareNewArticle">
             <summary>新增法条</summary>
             <p class="muted">新增法条会创建新的不可变正文版本。</p>
             <div class="row-grid">
@@ -707,6 +729,7 @@ onMounted(() => { void load() })
               <label class="field">
                 <span>顺序</span>
                 <input v-model.number="newArticle.order" min="0" max="2147483647" step="1" type="number" :disabled="maintenanceDisabled" />
+                <small v-if="newArticleOrderError" class="error">{{ newArticleOrderError }}</small>
               </label>
               <label class="field full">
                 <span>正文</span>
@@ -716,7 +739,7 @@ onMounted(() => { void load() })
             <div class="section-actions">
               <button
                 type="button"
-                :disabled="maintenanceDisabled || !newArticle.number.trim() || !newArticle.body.trim()"
+                :disabled="maintenanceDisabled || Boolean(newArticleOrderError) || !newArticle.number.trim() || !newArticle.body.trim()"
                 :title="lockReason"
                 @click="createArticle"
               >

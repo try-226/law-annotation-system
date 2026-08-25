@@ -7,6 +7,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
 import com.law.annotation.common.enums.ValidityStatus;
+import com.law.annotation.common.enums.TaskState;
+import com.law.annotation.common.enums.TaskType;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.CreateLawArticleRequest;
@@ -136,6 +138,39 @@ class LawCrudIntegrationTests {
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(LawErrorCodes.NOT_FOUND);
+    }
+
+    @Test
+    void pendingAnnotationTaskIsDisplayedAsAnnotatingInListAndDetail() {
+        insertLaw("law-1", "待标注任务测试法", Instant.parse("2026-08-19T01:00:00Z"), 1, false);
+        Instant now = Instant.parse("2026-08-19T02:00:00Z");
+        taskRepository.insert(new TaskDocument(
+                "task-1",
+                TaskType.ORDINARY,
+                TaskState.PENDING_ANNOTATION,
+                "law-1",
+                "annotator-1",
+                "标注员",
+                "待标注任务",
+                null,
+                "content-law-1",
+                null,
+                null,
+                List.of(),
+                null,
+                "admin-1",
+                null,
+                null,
+                null,
+                null,
+                now,
+                now));
+
+        assertThat(queryService.list(null, 0, 10).items()).singleElement()
+                .extracting(LawListItemResponse::displayStatus)
+                .isEqualTo(LawDisplayStatus.ANNOTATING);
+        assertThat(queryService.getDetail("law-1").displayStatus())
+                .isEqualTo(LawDisplayStatus.ANNOTATING);
     }
 
     @Test
@@ -550,6 +585,22 @@ class LawCrudIntegrationTests {
         assertThatThrownBy(() -> service.addArticle(
                         creation.law().getId(),
                         new CreateLawArticleRequest("第一条", "另一正文", 1),
+                        "admin-1"))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(LawErrorCodes.VALIDATION_FAILED);
+        assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(creation.law().getId()))
+                .hasSize(1);
+    }
+
+    @Test
+    void duplicateOrderMutationIsRejectedWithoutNewVersion() {
+        InitialLawCreation creation = createLaw("重复顺序测试法");
+        LawMaintenanceService service = maintenanceService(List.of());
+
+        assertThatThrownBy(() -> service.addArticle(
+                        creation.law().getId(),
+                        new CreateLawArticleRequest("第二条", "另一正文", 0),
                         "admin-1"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")

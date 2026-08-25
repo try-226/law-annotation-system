@@ -2,7 +2,6 @@ export type ValidityStatus = 'ACTIVE' | 'NOT_EFFECTIVE' | 'INVALID' | 'REPEALED'
 export type StructureNodeType = 'PART' | 'CHAPTER' | 'SECTION'
 export type LawDisplayStatus =
   | 'UNANNOTATED'
-  | 'PENDING_ANNOTATION'
   | 'ANNOTATING'
   | 'PENDING_REVIEW'
   | 'PARTIALLY_REJECTED'

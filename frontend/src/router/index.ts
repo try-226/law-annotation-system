@@ -68,7 +68,7 @@ const routes: RouteRecordRaw[] = [
         path: 'laws/import',
         name: 'law-import',
         component: LawImportView,
-        meta: { roles: ['ADMIN'], title: '导入法律' },
+        meta: { roles: ['ADMIN'], title: '录入法律' },
       },
       {
         path: 'laws/field-config',
