@@ -69,6 +69,18 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: ['ADMIN'], title: '导入法律' },
       },
       {
+        path: 'laws/recycle',
+        name: 'law-recycle',
+        component: () => import('../views/recycle/LawRecycleView.vue'),
+        meta: { roles: ['ADMIN'], title: '法律回收站' },
+      },
+      {
+        path: 'field-config',
+        name: 'field-config',
+        component: () => import('../views/field/FieldConfigView.vue'),
+        meta: { roles: ['ADMIN'], title: '字段配置' },
+      },
+      {
         path: 'laws/:lawId',
         name: 'law-detail',
         component: LawDetailView,

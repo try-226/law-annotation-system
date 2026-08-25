@@ -1,6 +1,7 @@
 package com.law.annotation.law;
 
 import com.law.annotation.auth.UserPrincipal;
+import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.response.ApiResponse;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.CreateLawArticleRequest;
@@ -68,9 +69,16 @@ public class LawController {
     @GetMapping
     public ApiResponse<PageResponse<LawListItemResponse>> listLaws(
             @RequestParam(required = false) String name,
+            @RequestParam(required = false) ValidityStatus validityStatus,
+            @RequestParam(required = false) LawDisplayStatus displayStatus,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(lawQueryService.list(name, page, size));
+        return ApiResponse.success(lawQueryService.list(
+                name,
+                validityStatus,
+                displayStatus,
+                page,
+                size));
     }
 
     @GetMapping("/recycle")

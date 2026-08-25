@@ -1,5 +1,14 @@
 export type ValidityStatus = 'ACTIVE' | 'NOT_EFFECTIVE' | 'INVALID' | 'REPEALED'
 export type StructureNodeType = 'PART' | 'CHAPTER' | 'SECTION'
+export type LawDisplayStatus =
+  | 'UNANNOTATED'
+  | 'ANNOTATING'
+  | 'PENDING_REVIEW'
+  | 'PARTIALLY_REJECTED'
+  | 'PENDING_REREVIEW'
+  | 'PENDING_REVISION'
+  | 'REVISING'
+  | 'COMPLETED'
 
 export interface ApiError {
   code: string
@@ -68,6 +77,7 @@ export interface LawListItem {
   issuingAuthority: string
   publicationDate: string
   validityStatus: ValidityStatus
+  displayStatus: LawDisplayStatus
   articleCount: number
   updatedAt: string
 }
@@ -94,11 +104,24 @@ export interface LawDetail {
   issuingAuthority: string
   publicationDate: string
   validityStatus: ValidityStatus
+  displayStatus: LawDisplayStatus
   structure: LawStructureNode[]
   articles: LawArticle[]
   currentContentVersionId: string
   currentContentVersionSeq: number
   pendingRevision: boolean
   createdAt: string
+  updatedAt: string
+}
+
+export interface RecycleLawListItem {
+  id: string
+  name: string
+  issuingAuthority: string
+  publicationDate: string
+  validityStatus: ValidityStatus
+  articleCount: number
+  pendingRevision: boolean
+  deletedAt: string
   updatedAt: string
 }

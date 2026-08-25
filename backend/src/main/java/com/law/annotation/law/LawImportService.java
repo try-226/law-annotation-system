@@ -20,10 +20,15 @@ public class LawImportService {
 
     private final LawTextParser parser;
     private final LawCreationService lawCreationService;
+    private final LawQueryService lawQueryService;
 
-    public LawImportService(LawTextParser parser, LawCreationService lawCreationService) {
+    public LawImportService(
+            LawTextParser parser,
+            LawCreationService lawCreationService,
+            LawQueryService lawQueryService) {
         this.parser = parser;
         this.lawCreationService = lawCreationService;
+        this.lawQueryService = lawQueryService;
     }
 
     public LawImportPreviewResponse parse(String fullTextPaste) {
@@ -62,7 +67,7 @@ public class LawImportService {
                     structure,
                     drafts,
                     operatorId);
-            return LawResponseMapper.toDetail(creation.law(), creation.contentVersion());
+            return lawQueryService.getDetail(creation.law().getId());
         } catch (ApiException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {

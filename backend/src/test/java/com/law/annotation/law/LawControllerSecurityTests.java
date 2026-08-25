@@ -18,6 +18,7 @@ import com.law.annotation.auth.RestSecurityErrorHandler;
 import com.law.annotation.auth.SecurityConfig;
 import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.Role;
+import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.GlobalExceptionHandler;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.user.UserDocument;
@@ -78,12 +79,51 @@ class LawControllerSecurityTests {
     void adminCanAccessLawList() throws Exception {
         UserDocument admin = activeUser("admin", Role.ADMIN);
         when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
-        when(lawQueryService.list(null, 0, 10))
+        when(lawQueryService.list(null, null, null, 0, 10))
                 .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
 
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray());
+    }
+
+    @Test
+    void adminCanCombineLawListFiltersBeforePaging() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        when(lawQueryService.list(
+                        "民法",
+                        ValidityStatus.ACTIVE,
+                        LawDisplayStatus.COMPLETED,
+                        1,
+                        20))
+                .thenReturn(new PageResponse<>(List.of(), 1, 20, 0, 0));
+
+        mockMvc.perform(get("/laws")
+                        .with(user(UserPrincipal.from(admin)))
+                        .param("name", "民法")
+                        .param("validityStatus", "ACTIVE")
+                        .param("displayStatus", "COMPLETED")
+                        .param("page", "1")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(1));
+
+        verify(lawQueryService).list(
+                "民法", ValidityStatus.ACTIVE, LawDisplayStatus.COMPLETED, 1, 20);
+    }
+
+    @Test
+    void invalidLawListEnumUsesTheUnifiedParameterErrorEnvelope() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+
+        mockMvc.perform(get("/laws")
+                        .with(user(UserPrincipal.from(admin)))
+                        .param("displayStatus", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("COMMON.VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.locators[0].path").value("displayStatus"));
     }
 
     @Test

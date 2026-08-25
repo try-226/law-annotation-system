@@ -43,7 +43,7 @@ export function safeErrorMessage(error: unknown, fallback = '操作失败，请�
     return failure.code === 'AUTH.CSRF_INVALID' ? '请求安全校验失败，请重试' : '无权执行此操作'
   }
   if (failure.status === 404) {
-    return '目标用户已不存在，列表将自动刷新'
+    return failure.userMessage || '目标资源不存在或已被删除'
   }
   if (failure.status === 409 || failure.status === 422) {
     return failure.userMessage || fallback
