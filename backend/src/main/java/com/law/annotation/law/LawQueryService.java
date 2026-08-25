@@ -24,12 +24,15 @@ public class LawQueryService {
 
     private final LawRepository lawRepository;
     private final ContentVersionRepository contentVersionRepository;
+    private final LawDisplayStatusResolver lawDisplayStatusResolver;
 
     public LawQueryService(
             LawRepository lawRepository,
-            ContentVersionRepository contentVersionRepository) {
+            ContentVersionRepository contentVersionRepository,
+            LawDisplayStatusResolver lawDisplayStatusResolver) {
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
+        this.lawDisplayStatusResolver = lawDisplayStatusResolver;
     }
 
     public PageResponse<LawListItemResponse> list(String name, int page, int size) {
@@ -46,8 +49,13 @@ public class LawQueryService {
                         .toList())
                 .stream()
                 .collect(Collectors.toMap(ContentVersionDocument::getId, Function.identity()));
+        Map<String, LawDisplayStatusResolver.Resolution> resolutions =
+                lawDisplayStatusResolver.resolveAll(laws.getContent());
         List<LawListItemResponse> items = laws.getContent().stream()
-                .map(law -> LawResponseMapper.toListItem(law, requireCurrentVersion(law, versions)))
+                .map(law -> LawResponseMapper.toListItem(
+                        law,
+                        requireCurrentVersion(law, versions),
+                        resolutions.get(law.getId()).displayStatus()))
                 .toList();
         return new PageResponse<>(
                 items,
@@ -93,7 +101,10 @@ public class LawQueryService {
                 .findById(law.getCurrentContentVersionId())
                 .filter(candidate -> law.getId().equals(candidate.getLawId()))
                 .orElseThrow(LawQueryService::versionInconsistent);
-        return LawResponseMapper.toDetail(law, version);
+        return LawResponseMapper.toDetail(
+                law,
+                version,
+                lawDisplayStatusResolver.resolve(law));
     }
 
     LawDocument requireVisibleLaw(String lawId) {

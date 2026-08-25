@@ -11,7 +11,10 @@ final class LawResponseMapper {
     private LawResponseMapper() {
     }
 
-    static LawListItemResponse toListItem(LawDocument law, ContentVersionDocument version) {
+    static LawListItemResponse toListItem(
+            LawDocument law,
+            ContentVersionDocument version,
+            LawDisplayStatus displayStatus) {
         return new LawListItemResponse(
                 law.getId(),
                 law.getName(),
@@ -19,10 +22,18 @@ final class LawResponseMapper {
                 law.getPublicationDate(),
                 law.getValidityStatus(),
                 version.getSemanticArticlesSnapshot().size(),
+                displayStatus,
                 law.getUpdatedAt());
     }
 
     static LawDetailResponse toDetail(LawDocument law, ContentVersionDocument version) {
+        return toDetail(law, version, LawDisplayStatusResolver.resolve(law, null));
+    }
+
+    static LawDetailResponse toDetail(
+            LawDocument law,
+            ContentVersionDocument version,
+            LawDisplayStatusResolver.Resolution resolution) {
         return new LawDetailResponse(
                 law.getId(),
                 law.getName(),
@@ -50,6 +61,8 @@ final class LawResponseMapper {
                 version.getId(),
                 version.getSeq(),
                 law.isPendingRevision(),
+                resolution.displayStatus(),
+                resolution.maintenanceLocked(),
                 law.getCreatedAt(),
                 law.getUpdatedAt());
     }

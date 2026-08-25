@@ -18,11 +18,15 @@ import com.law.annotation.auth.RestSecurityErrorHandler;
 import com.law.annotation.auth.SecurityConfig;
 import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.Role;
+import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.GlobalExceptionHandler;
 import com.law.annotation.common.response.PageResponse;
+import com.law.annotation.law.dto.LawDetailResponse;
+import com.law.annotation.law.dto.LawListItemResponse;
 import com.law.annotation.user.UserDocument;
 import com.law.annotation.user.UserRepository;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -72,6 +76,9 @@ class LawControllerSecurityTests {
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(annotator))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("AUTH.FORBIDDEN"));
+        mockMvc.perform(get("/laws/law-1").with(user(UserPrincipal.from(annotator))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("AUTH.FORBIDDEN"));
     }
 
     @Test
@@ -79,11 +86,48 @@ class LawControllerSecurityTests {
         UserDocument admin = activeUser("admin", Role.ADMIN);
         when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
         when(lawQueryService.list(null, 0, 10))
-                .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+                .thenReturn(new PageResponse<>(List.of(new LawListItemResponse(
+                        "law-1",
+                        "测试法",
+                        "制定机关",
+                        LocalDate.of(2026, 8, 19),
+                        ValidityStatus.ACTIVE,
+                        1,
+                        LawDisplayStatus.PENDING_REVIEW,
+                        Instant.parse("2026-08-19T00:00:00Z"))), 0, 10, 1, 1));
 
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items").isArray());
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items[0].displayStatus")
+                        .value("PENDING_REVIEW"));
+    }
+
+    @Test
+    void adminLawDetailContainsDisplayStatusAndMaintenanceLock() throws Exception {
+        UserDocument admin = activeUser("admin", Role.ADMIN);
+        when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        Instant now = Instant.parse("2026-08-19T00:00:00Z");
+        when(lawQueryService.getDetail("law-1")).thenReturn(new LawDetailResponse(
+                "law-1",
+                "测试法",
+                "制定机关",
+                LocalDate.of(2026, 8, 19),
+                ValidityStatus.ACTIVE,
+                List.of(),
+                List.of(),
+                "content-1",
+                1,
+                false,
+                LawDisplayStatus.REVISING,
+                true,
+                now,
+                now));
+
+        mockMvc.perform(get("/laws/law-1").with(user(UserPrincipal.from(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.displayStatus").value("REVISING"))
+                .andExpect(jsonPath("$.data.maintenanceLocked").value(true));
     }
 
     @Test

@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
+import com.law.annotation.common.enums.TaskState;
+import com.law.annotation.common.enums.TaskType;
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.common.response.PageResponse;
@@ -19,6 +21,8 @@ import com.law.annotation.law.dto.LawStructureInput;
 import com.law.annotation.law.dto.UpdateLawArticleRequest;
 import com.law.annotation.law.dto.UpdateLawBaseRequest;
 import com.law.annotation.law.dto.UpdateLawStructureRequest;
+import com.law.annotation.task.TaskDocument;
+import com.law.annotation.task.TaskRepository;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import com.mongodb.client.MongoClient;
@@ -29,6 +33,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -49,6 +54,7 @@ class LawCrudIntegrationTests {
     private static LawRepository lawRepository;
     private static ContentVersionRepository contentVersionRepository;
     private static LawAuditRepository lawAuditRepository;
+    private static TaskRepository taskRepository;
     private static LawQueryService queryService;
 
     @BeforeAll
@@ -60,8 +66,12 @@ class LawCrudIntegrationTests {
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
         lawAuditRepository = factory.getRepository(LawAuditRepository.class);
+        taskRepository = factory.getRepository(TaskRepository.class);
         new LawDomainIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
-        queryService = new LawQueryService(lawRepository, contentVersionRepository);
+        queryService = new LawQueryService(
+                lawRepository,
+                contentVersionRepository,
+                new LawDisplayStatusResolver(taskRepository));
     }
 
     @AfterAll
@@ -75,6 +85,7 @@ class LawCrudIntegrationTests {
         mongoTemplate.remove(new Query(), LawDocument.class);
         mongoTemplate.remove(new Query(), ContentVersionDocument.class);
         mongoTemplate.remove(new Query(), LawAuditDocument.class);
+        mongoTemplate.remove(new Query(), TaskDocument.class);
     }
 
     @Test
@@ -128,6 +139,61 @@ class LawCrudIntegrationTests {
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(LawErrorCodes.NOT_FOUND);
+    }
+
+    @Test
+    void lawQueriesReturnAuthoritativeDisplayStatusesAndMaintenanceLocks() {
+        Instant baseTime = Instant.parse("2026-08-19T01:00:00Z");
+        insertLaw("unannotated", "未标注测试法", baseTime, 1, false);
+        insertLaw("pending-review", "待审核测试法", baseTime.plusSeconds(1), 1, false);
+        insertLaw("partially-rejected", "部分驳回测试法", baseTime.plusSeconds(2), 1, false);
+        insertLaw("completed", "已完成测试法", baseTime.plusSeconds(3), 1, false);
+        insertLaw("pending-revision", "待修订测试法", baseTime.plusSeconds(4), 1, false);
+        insertLaw("revising", "修订中测试法", baseTime.plusSeconds(5), 1, false);
+        markFormalAnnotation("completed", false);
+        markFormalAnnotation("pending-revision", true);
+        markFormalAnnotation("revising", true);
+        insertTask("task-review", "pending-review", TaskType.ORDINARY, TaskState.PENDING_REVIEW);
+        insertTask(
+                "task-rejected",
+                "partially-rejected",
+                TaskType.ORDINARY,
+                TaskState.PARTIALLY_REJECTED);
+        insertTask("task-revision", "revising", TaskType.REVISION, TaskState.ANNOTATING);
+
+        Map<String, LawListItemResponse> itemsById = queryService.list(null, 0, 10).items()
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(LawListItemResponse::id, item -> item));
+
+        assertThat(itemsById.get("unannotated").displayStatus())
+                .isEqualTo(LawDisplayStatus.UNANNOTATED);
+        assertThat(itemsById.get("pending-review").displayStatus())
+                .isEqualTo(LawDisplayStatus.PENDING_REVIEW);
+        assertThat(itemsById.get("partially-rejected").displayStatus())
+                .isEqualTo(LawDisplayStatus.PARTIALLY_REJECTED);
+        assertThat(itemsById.get("completed").displayStatus())
+                .isEqualTo(LawDisplayStatus.COMPLETED);
+        assertThat(itemsById.get("pending-revision").displayStatus())
+                .isEqualTo(LawDisplayStatus.PENDING_REVISION);
+        assertThat(itemsById.get("revising").displayStatus())
+                .isEqualTo(LawDisplayStatus.REVISING);
+        assertThat(queryService.getDetail("unannotated").maintenanceLocked()).isFalse();
+        assertThat(queryService.getDetail("pending-review").maintenanceLocked()).isTrue();
+        assertThat(queryService.getDetail("revising").maintenanceLocked()).isTrue();
+        assertThat(queryService.getDetail("revising").displayStatus())
+                .isEqualTo(LawDisplayStatus.REVISING);
+    }
+
+    @Test
+    void approvedAndCanceledOrdinaryTasksDoNotLockLawMaintenance() {
+        Instant baseTime = Instant.parse("2026-08-19T01:00:00Z");
+        insertLaw("approved-law", "已通过任务测试法", baseTime, 1, false);
+        insertLaw("canceled-law", "已取消任务测试法", baseTime.plusSeconds(1), 1, false);
+        insertTask("approved-task", "approved-law", TaskType.ORDINARY, TaskState.APPROVED);
+        insertTask("canceled-task", "canceled-law", TaskType.ORDINARY, TaskState.CANCELED);
+
+        assertThat(queryService.getDetail("approved-law").maintenanceLocked()).isFalse();
+        assertThat(queryService.getDetail("canceled-law").maintenanceLocked()).isFalse();
     }
 
     @Test
@@ -664,6 +730,44 @@ class LawCrudIntegrationTests {
         return mongoTemplate.getCollection("laws")
                 .find(new Document("_id", lawId))
                 .first();
+    }
+
+    private static void markFormalAnnotation(String lawId, boolean pendingRevision) {
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is(lawId)),
+                new Update()
+                        .set("currentAnnotationVersionId", "annotation-" + lawId)
+                        .set("pendingRevision", pendingRevision),
+                LawDocument.class);
+    }
+
+    private static void insertTask(
+            String taskId,
+            String lawId,
+            TaskType taskType,
+            TaskState taskState) {
+        Instant now = Instant.parse("2026-08-19T02:00:00Z");
+        taskRepository.insert(new TaskDocument(
+                taskId,
+                taskType,
+                taskState,
+                lawId,
+                "annotator-1",
+                "测试标注员",
+                "查询合同测试任务",
+                null,
+                "content-" + lawId,
+                null,
+                null,
+                List.of(),
+                null,
+                "admin-1",
+                null,
+                null,
+                null,
+                null,
+                now,
+                now));
     }
 
     private static void insertLaw(
