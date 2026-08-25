@@ -110,6 +110,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/task/TaskDetailView.vue'),
         meta: { roles: ['ANNOTATOR'], title: '任务详情' },
       },
+      {
+        path: 'my-tasks/:taskId/annotation',
+        name: 'annotation-workbench',
+        component: () => import('../views/annotation/AnnotationWorkbenchView.vue'),
+        meta: { roles: ['ANNOTATOR'], title: '标注工作台' },
+      },
     ],
   },
   {

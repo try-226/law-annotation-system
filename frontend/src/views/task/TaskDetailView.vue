@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { cancelTask, getTask, startTask } from '../../api/tasks'
 import type { ValidityStatus } from '../../types/law'
 import type { TaskDetail } from '../../types/task'
-import { ANNOTATOR_TASK_ACTION_LABELS, formatTaskDateTime, isCancelableTaskState, TASK_TYPE_LABELS } from '../../types/task'
+import { formatTaskDateTime, isCancelableTaskState, TASK_TYPE_LABELS } from '../../types/task'
 import { authState } from '../../state/auth'
 import { notify } from '../../state/notifications'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
@@ -13,6 +13,7 @@ import CancelTaskModal from './CancelTaskModal.vue'
 import TaskStatusBadge from './TaskStatusBadge.vue'
 
 const route = useRoute()
+const router = useRouter()
 const task = ref<TaskDetail | null>(null)
 const loading = ref(false)
 const loadError = ref('')
@@ -25,8 +26,11 @@ let requestSequence = 0
 const isAdmin = computed(() => authState.user?.role === 'ADMIN')
 const backRouteName = computed(() => (isAdmin.value ? 'admin-tasks' : 'my-tasks'))
 const taskId = computed(() => String(route.params.taskId ?? ''))
-const showWorkbenchNotice = computed(() => !isAdmin.value && task.value
-  && (task.value.taskState === 'ANNOTATING' || task.value.taskState === 'PARTIALLY_REJECTED'))
+const annotatorWorkbenchLabel = computed(() => {
+  if (!task.value) return '查看'
+  // 部分驳回在 PR13 只读是当前 editableScope 的能力边界，不重定义 TaskState。
+  return task.value.taskState === 'ANNOTATING' ? '继续标注' : '查看标注'
+})
 
 const validityLabels: Record<ValidityStatus, string> = {
   ACTIVE: '现行有效', NOT_EFFECTIVE: '尚未生效', INVALID: '失效', REPEALED: '已废止',
@@ -59,6 +63,7 @@ async function startCurrentTask(): Promise<void> {
   try {
     task.value = await startTask(task.value.taskId)
     notify('任务已开始', 'success')
+    await router.push({ name: 'annotation-workbench', params: { taskId: task.value.taskId } })
   } catch (error: unknown) {
     notify(taskErrorMessage(error, '开始任务失败，请稍后重试'), 'error')
     await loadTask()
@@ -103,12 +108,11 @@ onMounted(loadTask)
       <section class="panel detail-hero">
         <div><div class="detail-title-row"><h1>{{ task.taskName }}</h1><TaskStatusBadge :state="task.taskState" /></div><p class="detail-meta">{{ TASK_TYPE_LABELS[task.taskType] }} · {{ task.lawBaseInfoSnapshot.name }} · {{ task.annotatorName }}</p></div>
         <div class="detail-actions">
-          <button v-if="!isAdmin && task.taskState === 'PENDING_ANNOTATION'" class="button button--primary" type="button" :disabled="starting" @click="startCurrentTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : '开始' }}</button>
+          <button v-if="!isAdmin && task.taskState === 'PENDING_ANNOTATION'" class="button button--primary" type="button" :disabled="starting" @click="startCurrentTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : '开始标注' }}</button>
+          <RouterLink v-else-if="!isAdmin" class="button button--primary" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ annotatorWorkbenchLabel }}</RouterLink>
           <button v-if="isAdmin && isCancelableTaskState(task.taskState)" class="button button--danger" type="button" @click="cancelOpen = true">取消任务</button>
         </div>
       </section>
-
-      <p v-if="showWorkbenchNotice" class="workbench-note">当前操作为“{{ ANNOTATOR_TASK_ACTION_LABELS[task.taskState] }}”。本版本仅提供任务信息查看，标注工作台将在后续版本开放。</p>
 
       <div class="detail-grid">
         <section class="panel detail-card"><h2>任务信息</h2><dl class="definition-grid"><div><dt>任务类型</dt><dd>{{ TASK_TYPE_LABELS[task.taskType] }}</dd></div><div><dt>标注员</dt><dd>{{ task.annotatorName }}</dd></div><div><dt>创建时间</dt><dd>{{ formatTaskDateTime(task.createdAt) }}</dd></div><div><dt>更新时间</dt><dd>{{ formatTaskDateTime(task.updatedAt) }}</dd></div><div><dt>绑定内容版本</dt><dd>C{{ task.contentVersionSnapshot.seq }}</dd></div><div><dt>快照法条数量</dt><dd>{{ task.contentVersionSnapshot.articles.length }} 条</dd></div></dl></section>
