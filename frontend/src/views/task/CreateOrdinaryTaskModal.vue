@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 
-import { listLaws, getLaw } from '../../api/laws'
-import { createOrdinaryTask, listTasks } from '../../api/tasks'
+import { listLaws } from '../../api/laws'
+import { createOrdinaryTask } from '../../api/tasks'
 import { listUsers } from '../../api/users'
 import type { PageResponse, User } from '../../api/types'
-import type { LawListItem } from '../../types/law'
+import type { LawDisplayStatus, LawListItem } from '../../types/law'
 import type { TaskDetail } from '../../types/task'
-import { isUnfinishedTaskState } from '../../types/task'
 import { fieldErrors, parseFailure, safeErrorMessage } from '../../utils/errors'
 import AppModal from '../../components/AppModal.vue'
 
@@ -31,9 +30,7 @@ const eligibleLaws = ref<LawListItem[]>([])
 const lawsLoading = ref(false)
 const lawsError = ref('')
 let lawRequestSequence = 0
-const MAX_PROBE_CONCURRENCY = 4
-let activeProbeRequests = 0
-const probeWaiters: Array<() => void> = []
+const ORDINARY_TASK_ELIGIBLE_STATUS = 'UNANNOTATED' satisfies LawDisplayStatus
 
 const annotators = ref<User[]>([])
 const annotatorsLoading = ref(false)
@@ -51,55 +48,18 @@ function resetForm(): void {
   eligibleLaws.value = []
 }
 
-async function withProbeLimit<T>(
-  request: () => Promise<T>,
-  shouldRun: () => boolean,
-): Promise<T | null> {
-  if (activeProbeRequests >= MAX_PROBE_CONCURRENCY) {
-    await new Promise<void>((resolve) => probeWaiters.push(resolve))
-  } else {
-    activeProbeRequests += 1
-  }
-  try {
-    if (!shouldRun()) return null
-    return await request()
-  } finally {
-    const next = probeWaiters.shift()
-    if (next) {
-      next()
-    } else {
-      activeProbeRequests -= 1
-    }
-  }
-}
-
-async function isEligibleByPublicData(law: LawListItem, sequence: number): Promise<boolean> {
-  const isCurrent = () => sequence === lawRequestSequence && props.open
-  const detail = await withProbeLimit(() => getLaw(law.id), isCurrent)
-  if (!detail) return false
-  const taskPage = await withProbeLimit(
-    () => listTasks({ lawId: law.id, page: 0, size: 1 }),
-    isCurrent,
-  )
-  if (!taskPage) return false
-  const latestTask = taskPage.items[0]
-  return Boolean(detail.currentContentVersionId)
-    && detail.articles.length > 0
-    && !detail.pendingRevision
-    && (!latestTask || !isUnfinishedTaskState(latestTask.taskState))
-}
-
 async function loadEligibleLaws(preserveSelection = false): Promise<void> {
   const sequence = ++lawRequestSequence
   lawsLoading.value = true
   lawsError.value = ''
   try {
     const page = await listLaws(appliedLawSearch.value, lawPage.value)
-    const potential = page.items.filter((law) => law.articleCount > 0)
-    const flags = await Promise.all(potential.map((law) => isEligibleByPublicData(law, sequence)))
     if (sequence !== lawRequestSequence || !props.open) return
     rawLawPage.value = page
-    eligibleLaws.value = potential.filter((_, index) => flags[index])
+    eligibleLaws.value = page.items.filter((law) => (
+      law.displayStatus === ORDINARY_TASK_ELIGIBLE_STATUS
+      && law.articleCount > 0
+    ))
     if (!preserveSelection || !eligibleLaws.value.some((law) => law.id === form.lawId)) {
       form.lawId = ''
     }
@@ -234,7 +194,7 @@ watch(
           <input v-model="lawSearchInput" class="input" maxlength="100" placeholder="按法律名称搜索" :disabled="lawsLoading || submitting" aria-label="搜索候选法律" @keydown.enter.prevent="applyLawSearch" />
           <button class="button" type="button" :disabled="lawsLoading || submitting" @click="applyLawSearch">查询</button>
         </div>
-        <div v-if="lawsLoading" class="candidate-state"><span class="spinner" />正在核验当前页候选法律…</div>
+        <div v-if="lawsLoading" class="candidate-state"><span class="spinner" />正在加载当前页候选法律…</div>
         <div v-else-if="lawsError" class="candidate-state candidate-state--error"><span>{{ lawsError }}</span><button class="button" type="button" @click="loadEligibleLaws()">重试</button></div>
         <div v-else-if="eligibleLaws.length === 0" class="candidate-state">当前页暂无可选法律</div>
         <div v-else class="candidate-list">

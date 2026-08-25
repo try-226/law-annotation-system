@@ -16,7 +16,8 @@ const fullText = ref('')
 const preview = ref<LawImportPreview | null>(null)
 const parsing = ref(false)
 const confirming = ref(false)
-const error = ref('')
+const parseError = ref('')
+const confirmError = ref('')
 const parseWarnings = ref<string[]>([])
 const parseValidationIssues = ref<LawValidationIssue[]>([])
 let manualIndex = 0
@@ -37,7 +38,8 @@ const canConfirm = computed(() => confirmPayload.value !== null)
 
 async function parse() {
   parsing.value = true
-  error.value = ''
+  parseError.value = ''
+  confirmError.value = ''
   preview.value = null
   parseWarnings.value = []
   parseValidationIssues.value = []
@@ -47,7 +49,7 @@ async function parse() {
     parseWarnings.value = [...parsed.warnings]
     parseValidationIssues.value = [...parsed.validationIssues]
   } catch (caught) {
-    error.value = locatorValidationMessage(caught)
+    parseError.value = locatorValidationMessage(caught)
   } finally {
     parsing.value = false
   }
@@ -92,12 +94,12 @@ async function confirm() {
   const payload = confirmPayload.value
   if (!payload) return
   confirming.value = true
-  error.value = ''
+  confirmError.value = ''
   try {
     const law = await confirmLaw(payload)
     await router.push(`/laws/${law.id}`)
   } catch (caught) {
-    error.value = locatorValidationMessage(caught)
+    confirmError.value = locatorValidationMessage(caught)
   } finally {
     confirming.value = false
   }
@@ -122,7 +124,7 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
         <span class="muted">{{ fullText.length.toLocaleString() }} / 500,000</span>
         <button :disabled="parsing || confirming || !fullText.trim()" @click="parse">{{ parsing ? '解析中…' : '解析并预览' }}</button>
       </div>
-      <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="parseError" class="error">{{ parseError }}</p>
     </div>
 
     <template v-if="preview">
@@ -180,6 +182,7 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
         <div class="section-actions">
           <button :disabled="confirming || !canConfirm" @click="confirm">{{ confirming ? '正在创建…' : '确认导入' }}</button>
         </div>
+        <p v-if="confirmError" class="error">{{ confirmError }}</p>
       </div>
     </template>
   </section>

@@ -57,6 +57,8 @@ const message = ref('')
 const expandedNodeIds = ref<Set<string>>(new Set())
 const selectedNodeId = ref<string | null>(null)
 const articleEdit = ref<ArticleEditBuffer | null>(null)
+const tasksLoading = ref(false)
+const tasksError = ref('')
 let manualNodeIndex = 0
 
 const base = reactive<LawBaseInfo>({
@@ -116,12 +118,19 @@ const hasActiveTask = computed(() => (
   currentTask.value !== null
   || (detail.value !== null && activeTaskDisplayStatuses.has(detail.value.displayStatus))
 ))
-const mutationBusy = computed(() => hasActiveTask.value || Boolean(saving.value))
+const taskStateUnconfirmed = computed(() => tasksLoading.value || tasksError.value.length > 0)
+const mutationBusy = computed(() => (
+  hasActiveTask.value || taskStateUnconfirmed.value || Boolean(saving.value)
+))
 const maintenanceDisabled = computed(() => mutationBusy.value || articleEdit.value !== null)
 const lockReason = computed(() => (
   hasActiveTask.value
     ? '该法律存在未结束任务，基础信息、结构、法条和删除操作均已锁定。'
-    : ''
+    : tasksLoading.value
+      ? '任务信息正在加载，相关维护操作暂时禁用。'
+      : tasksError.value
+      ? '任务信息加载失败，无法确认当前任务状态，相关维护操作暂时禁用。'
+      : ''
 ))
 
 const nodeById = computed(() => new Map(
@@ -215,28 +224,40 @@ function sync(value: LawDetail, resetTree = false) {
   }
 }
 
+async function loadTasks() {
+  if (tasksLoading.value) return
+  tasksLoading.value = true
+  tasksError.value = ''
+  tasks.value = []
+  try {
+    const taskPage = await listTasks({ lawId, page: 0, size: 100 })
+    tasks.value = taskPage.items
+  } catch (caught) {
+    tasksError.value = locatorValidationMessage(caught, '任务信息加载失败，请稍后重试')
+  } finally {
+    tasksLoading.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   detail.value = null
   tasks.value = []
+  tasksError.value = ''
   articleEdit.value = null
   try {
-    const [law, taskPage] = await Promise.all([
-      getLaw(lawId),
-      listTasks({ lawId, page: 0, size: 100 }),
-    ])
-    tasks.value = taskPage.items
-    sync(law, true)
+    sync(await getLaw(lawId), true)
   } catch (caught) {
     error.value = locatorValidationMessage(caught, '法律详情加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
+  if (detail.value) await loadTasks()
 }
 
 async function run(label: string, operation: () => Promise<LawDetail>) {
-  if (hasActiveTask.value) {
+  if (hasActiveTask.value || taskStateUnconfirmed.value) {
     error.value = lockReason.value
     return
   }
@@ -710,11 +731,22 @@ onMounted(() => { void load() })
             <h2>当前状态</h2>
             <dl class="status-list">
               <div><dt>标注状态</dt><dd><span class="status-pill primary">{{ displayStatus }}</span></dd></div>
-              <div><dt>未结束任务</dt><dd>{{ hasActiveTask ? '存在' : '不存在' }}</dd></div>
+              <div><dt>未结束任务</dt><dd>{{ tasksLoading ? '加载中' : tasksError ? '信息加载失败' : hasActiveTask ? '存在' : '不存在' }}</dd></div>
               <div><dt>修订状态</dt><dd>{{ detail.pendingRevision ? '待修订' : '无需修订' }}</dd></div>
             </dl>
 
-            <div v-if="currentTask" class="status-block">
+            <div v-if="tasksLoading" class="status-block">
+              <h3>当前任务</h3>
+              <p class="muted">正在加载任务信息…</p>
+            </div>
+            <div v-else-if="tasksError" class="status-block">
+              <h3>当前任务</h3>
+              <p class="error">{{ tasksError }}</p>
+              <button class="secondary small" type="button" :disabled="tasksLoading" @click="loadTasks">
+                {{ tasksLoading ? '重试中…' : '重试加载任务信息' }}
+              </button>
+            </div>
+            <div v-else-if="currentTask" class="status-block">
               <h3>当前任务</h3>
               <p><strong>{{ currentTask.taskName || currentTask.taskId }}</strong></p>
               <p>{{ TASK_TYPE_LABELS[currentTask.taskType] }} · {{ TASK_STATE_LABELS[currentTask.taskState] }}</p>
