@@ -1,5 +1,4 @@
-import type { AxiosRequestConfig } from 'axios'
-
+import { csrfRequest } from './csrf'
 import request from './request'
 import type { ApiResponse } from './types'
 
@@ -19,16 +18,6 @@ export interface FieldConfig {
   fields: FieldConfigItem[]
 }
 
-interface CsrfToken {
-  headerName: string
-  token: string
-}
-
-async function csrfConfig(): Promise<AxiosRequestConfig> {
-  const response = await request.get<ApiResponse<CsrfToken>>('/auth/csrf')
-  return { headers: { [response.data.data.headerName]: response.data.data.token } }
-}
-
 export async function getFieldConfig(): Promise<FieldConfig> {
   const response = await request.get<ApiResponse<FieldConfig>>('/field-config')
   return response.data.data
@@ -38,10 +27,10 @@ export async function updateFieldRequired(
   fieldKey: string,
   required: boolean,
 ): Promise<FieldConfig> {
-  const response = await request.patch<ApiResponse<FieldConfig>>(
-    '/field-config',
-    { fieldKey, required },
-    await csrfConfig(),
-  )
-  return response.data.data
+  const { data } = await csrfRequest<ApiResponse<FieldConfig>>({
+    method: 'PATCH',
+    url: '/field-config',
+    data: { fieldKey, required },
+  })
+  return data.data
 }

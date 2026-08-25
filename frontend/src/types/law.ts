@@ -10,27 +10,6 @@ export type LawDisplayStatus =
   | 'REVISING'
   | 'COMPLETED'
 
-export interface ApiError {
-  code: string
-  userMessage: string
-  locators: Array<{ field?: string; message?: string }>
-}
-
-export interface ApiResponse<T> {
-  success: boolean
-  data: T
-  error: ApiError | null
-  timestamp: string
-}
-
-export interface PageResponse<T> {
-  items: T[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-}
-
 export interface LawBaseInfo {
   name: string
   issuingAuthority: string

@@ -6,18 +6,26 @@ import {
   addLawArticle, apiErrorMessage, deleteLaw, deleteLawArticle, getLaw,
   updateLawArticle, updateLawBase, updateLawStructure,
 } from '../../api/laws'
-import type { LawBaseInfo, LawDetail, LawDisplayStatus, LawStructureInput, StructureNodeType, ValidityStatus } from '../../types/law'
+import type { LawArticle, LawBaseInfo, LawDetail, LawDisplayStatus, LawStructureInput, StructureNodeType, ValidityStatus } from '../../types/law'
+import {
+  createLawDetailDraftState,
+  mergeLawDetailDraftState,
+  type LawDetailDraftState,
+  type SavedLawRegion,
+} from './lawDetailDraftState'
 
 const route = useRoute()
 const router = useRouter()
 const lawId = String(route.params.lawId)
 const detail = ref<LawDetail | null>(null)
 const structures = ref<LawStructureInput[]>([])
+const articles = ref<LawArticle[]>([])
 const loading = ref(true)
 const saving = ref('')
 const error = ref('')
 const message = ref('')
 let manualNodeIndex = 0
+let draftState: LawDetailDraftState | null = null
 
 const base = reactive<LawBaseInfo>({ name: '', issuingAuthority: '', publicationDate: '', validityStatus: 'ACTIVE' })
 const newArticle = reactive({ number: '', body: '', order: 0 })
@@ -42,35 +50,56 @@ function rejectLockedMutation() {
   return true
 }
 
-function sync(value: LawDetail) {
-  detail.value = value
-  Object.assign(base, {
-    name: value.name, issuingAuthority: value.issuingAuthority,
-    publicationDate: value.publicationDate, validityStatus: value.validityStatus,
-  })
-  structures.value = value.structure.map((node) => ({
-    nodeId: node.nodeId, type: node.type, title: node.title,
-    parentNodeId: node.parentNodeId, order: node.order, articleRefs: [...node.articleIds],
-  }))
+function applyDraftState(state: LawDetailDraftState) {
+  draftState = state
+  detail.value = state.detail
+  Object.assign(base, state.base)
+  structures.value = state.structures
+  articles.value = state.articles
+}
+
+function currentDraftState(): LawDetailDraftState {
+  if (!draftState || !detail.value) throw new Error('法律详情草稿尚未初始化')
+  return {
+    ...draftState,
+    detail: detail.value,
+    base: { ...base },
+    structures: structures.value.map((node) => ({ ...node, articleRefs: [...node.articleRefs] })),
+    articles: articles.value.map((article) => ({ ...article })),
+  }
+}
+
+function syncInitial(value: LawDetail) {
+  applyDraftState(createLawDetailDraftState(value))
+}
+
+function syncMutation(value: LawDetail, saved: SavedLawRegion) {
+  applyDraftState(mergeLawDetailDraftState(currentDraftState(), value, saved))
 }
 
 async function load() {
   loading.value = true
   error.value = ''
-  try { sync(await getLaw(lawId)) } catch (caught) { error.value = apiErrorMessage(caught) }
+  try { syncInitial(await getLaw(lawId)) } catch (caught) { error.value = apiErrorMessage(caught) }
   finally { loading.value = false }
 }
 
-async function run(label: string, operation: () => Promise<LawDetail>) {
-  if (rejectLockedMutation()) return
+async function run(
+  label: string,
+  saved: SavedLawRegion,
+  operation: () => Promise<LawDetail>,
+): Promise<boolean> {
+  if (rejectLockedMutation()) return false
   saving.value = label
   error.value = ''
   message.value = ''
   try {
-    sync(await operation())
+    syncMutation(await operation(), saved)
     message.value = '保存成功'
+    return true
   } catch (caught) {
     error.value = apiErrorMessage(caught)
+    return false
   } finally {
     saving.value = ''
   }
@@ -93,14 +122,22 @@ function removeStructureNode(nodeId: string) {
 
 async function createArticle() {
   if (rejectLockedMutation()) return
-  await run('new-article', () => addLawArticle(lawId, newArticle))
-  if (!error.value) Object.assign(newArticle, { number: '', body: '', order: detail.value?.articles.length || 0 })
+  const saved = await run(
+    'new-article',
+    { region: 'articles' },
+    () => addLawArticle(lawId, newArticle),
+  )
+  if (saved) Object.assign(newArticle, { number: '', body: '', order: articles.value.length })
 }
 
 async function removeArticle(articleId: string) {
   if (rejectLockedMutation()) return
   if (!window.confirm('确认删除该法条？系统会保留旧内容版本。')) return
-  await run(`delete-${articleId}`, () => deleteLawArticle(lawId, articleId))
+  await run(
+    `delete-${articleId}`,
+    { region: 'articles' },
+    () => deleteLawArticle(lawId, articleId),
+  )
 }
 
 async function removeLaw() {
@@ -140,7 +177,7 @@ onMounted(load)
           <label class="field"><span>发布日期</span><input v-model="base.publicationDate" :disabled="maintenanceLocked" type="date" /></label>
           <label class="field"><span>效力状态</span><select v-model="base.validityStatus" :disabled="maintenanceLocked"><option value="ACTIVE">现行有效</option><option value="NOT_EFFECTIVE">尚未生效</option><option value="INVALID">失效</option><option value="REPEALED">已废止</option></select></label>
         </div>
-        <div class="section-actions"><button :disabled="!!saving || maintenanceLocked" @click="run('base', () => updateLawBase(lawId, base))">{{ saving === 'base' ? '保存中…' : '保存基础信息' }}</button></div>
+        <div class="section-actions"><button :disabled="!!saving || maintenanceLocked" @click="run('base', { region: 'base' }, () => updateLawBase(lawId, base))">{{ saving === 'base' ? '保存中…' : '保存基础信息' }}</button></div>
       </div>
 
       <div class="card">
@@ -153,16 +190,16 @@ onMounted(load)
             <label class="field"><span>标题</span><input v-model="node.title" :disabled="maintenanceLocked" maxlength="100" /></label>
             <label class="field"><span>顺序</span><input v-model.number="node.order" :disabled="maintenanceLocked" min="0" type="number" /></label>
             <label class="field"><span>上级结构</span><select v-model="node.parentNodeId" :disabled="maintenanceLocked"><option :value="null">无</option><option v-for="parent in structures.filter((item) => item.nodeId !== node.nodeId)" :key="parent.nodeId" :value="parent.nodeId">{{ parent.title || parent.nodeId }}</option></select></label>
-            <label class="field full"><span>包含法条（可多选）</span><select v-model="node.articleRefs" :disabled="maintenanceLocked" multiple size="4"><option v-for="article in detail.articles" :key="article.articleId" :value="article.articleId">{{ article.number }}</option></select></label>
+            <label class="field full"><span>包含法条（可多选）</span><select v-model="node.articleRefs" :disabled="maintenanceLocked" multiple size="4"><option v-for="article in articles" :key="article.articleId" :value="article.articleId">{{ article.number }}</option></select></label>
           </div>
         </div>
-        <div class="section-actions"><button :disabled="!!saving || maintenanceLocked" @click="run('structure', () => updateLawStructure(lawId, structures))">{{ saving === 'structure' ? '保存中…' : '保存结构' }}</button></div>
+        <div class="section-actions"><button :disabled="!!saving || maintenanceLocked" @click="run('structure', { region: 'structure' }, () => updateLawStructure(lawId, structures))">{{ saving === 'structure' ? '保存中…' : '保存结构' }}</button></div>
       </div>
 
       <div class="card">
-        <div class="row-head"><div><h2>法条</h2><p class="muted">当前内容版本 C{{ detail.currentContentVersionSeq }}；法条语义变更会追加新版本。</p></div><span class="badge">{{ detail.articles.length }} 条</span></div>
-        <div v-for="article in detail.articles" :key="article.articleId" class="row-card">
-          <div class="row-head"><strong>{{ article.number }}</strong><div class="actions"><button class="small" :disabled="!!saving || maintenanceLocked" @click="run(`article-${article.articleId}`, () => updateLawArticle(lawId, article.articleId, article))">保存</button><button class="danger small" :disabled="!!saving || maintenanceLocked" @click="removeArticle(article.articleId)">删除</button></div></div>
+        <div class="row-head"><div><h2>法条</h2><p class="muted">当前内容版本 C{{ detail.currentContentVersionSeq }}；法条语义变更会追加新版本。</p></div><span class="badge">{{ articles.length }} 条</span></div>
+        <div v-for="article in articles" :key="article.articleId" class="row-card">
+          <div class="row-head"><strong>{{ article.number }}</strong><div class="actions"><button class="small" :disabled="!!saving || maintenanceLocked" @click="run(`article-${article.articleId}`, { region: 'article', articleId: article.articleId }, () => updateLawArticle(lawId, article.articleId, article))">保存</button><button class="danger small" :disabled="!!saving || maintenanceLocked" @click="removeArticle(article.articleId)">删除</button></div></div>
           <div class="row-grid">
             <label class="field"><span>条号</span><input v-model="article.number" :disabled="maintenanceLocked" maxlength="50" /></label>
             <label class="field"><span>顺序</span><input v-model.number="article.order" :disabled="maintenanceLocked" min="0" type="number" /></label>

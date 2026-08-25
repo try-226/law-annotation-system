@@ -2,7 +2,8 @@
 import { onMounted, ref } from 'vue'
 
 import { apiErrorMessage, listLaws } from '../../api/laws'
-import type { LawDisplayStatus, LawListItem, PageResponse, ValidityStatus } from '../../types/law'
+import type { PageResponse } from '../../api/types'
+import type { LawDisplayStatus, LawListItem, ValidityStatus } from '../../types/law'
 
 const keyword = ref('')
 const validityStatus = ref<ValidityStatus | ''>('')

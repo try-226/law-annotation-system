@@ -2,7 +2,8 @@
 import { onMounted, ref } from 'vue'
 
 import { apiErrorMessage, listRecycleLaws, restoreLaw } from '../../api/laws'
-import type { PageResponse, RecycleLawListItem, ValidityStatus } from '../../types/law'
+import type { PageResponse } from '../../api/types'
+import type { RecycleLawListItem, ValidityStatus } from '../../types/law'
 
 const keyword = ref('')
 const loading = ref(false)

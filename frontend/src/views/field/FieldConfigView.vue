@@ -18,6 +18,7 @@ const savingFieldKey = ref('')
 const overallFields = computed(() => config.value.fields.filter((field) => field.scope === 'OVERALL'))
 const articleFields = computed(() => config.value.fields.filter((field) => field.scope === 'ARTICLE'))
 const typeLabels: Record<FieldValueKind, string> = { SELECT: '单选', TEXT: '文本', TEXTAREA: '长文本' }
+const scopeLabels = { OVERALL: '整体信息', ARTICLE: '具体法条' } as const
 
 async function load() {
   loading.value = true
@@ -58,9 +59,9 @@ onMounted(() => void load())
       <div v-else class="field-config-grid">
         <section v-for="group in [{ title: '整体信息字段', fields: overallFields }, { title: '具体法条字段', fields: articleFields }]" :key="group.title" class="config-section">
           <h2>{{ group.title }}</h2>
-          <div class="table-scroll"><table><thead><tr><th>字段名称</th><th>类型</th><th>是否必填</th></tr></thead><tbody>
+          <div class="table-scroll"><table><thead><tr><th>字段名称</th><th>所属范围</th><th>类型</th><th>是否必填</th></tr></thead><tbody>
             <tr v-for="field in group.fields" :key="field.fieldKey">
-              <td>{{ field.displayName }}</td><td>{{ typeLabels[field.type] }}</td>
+              <td>{{ field.displayName }}</td><td>{{ scopeLabels[field.scope] }}</td><td>{{ typeLabels[field.type] }}</td>
               <td><span v-if="!field.configurable" class="core-required">必填（核心）</span><label v-else class="required-toggle"><input type="checkbox" :checked="field.required" :disabled="Boolean(savingFieldKey)" :aria-label="`${field.displayName}设为必填`" @change="changeRequired(field, $event)" />{{ savingFieldKey === field.fieldKey ? '保存中…' : field.required ? '必填' : '选填' }}</label></td>
             </tr>
           </tbody></table></div>
