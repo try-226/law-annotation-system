@@ -4,7 +4,14 @@ import { useRouter } from 'vue-router'
 
 import { apiErrorMessage, confirmLaw, parseLaw } from '../../api/laws'
 import type { LawImportPreview, StructureNodeType } from '../../types/law'
-import { nextArticleOrder, validateLawImportPreview } from './lawImportValidation'
+import {
+  buildPasteCandidate,
+  FULL_TEXT_TOO_LONG_MESSAGE,
+  fullTextCodePointLength,
+  nextArticleOrder,
+  validateFullTextLength,
+  validateLawImportPreview,
+} from './lawImportValidation'
 
 const router = useRouter()
 const fullText = ref('')
@@ -17,6 +24,7 @@ const error = ref('')
 let manualIndex = 0
 
 const busy = computed(() => parsing.value || confirming.value)
+const fullTextLength = computed(() => fullTextCodePointLength(fullText.value))
 const previewIsStale = computed(() => (
   preview.value !== null && parsedSourceSnapshot.value !== fullText.value
 ))
@@ -30,6 +38,11 @@ const canConfirm = computed(() => !previewIsStale.value && currentValidationIssu
 async function parse() {
   if (busy.value) return
   const source = fullText.value
+  const lengthError = validateFullTextLength(source)
+  if (lengthError) {
+    error.value = lengthError
+    return
+  }
   parsing.value = true
   error.value = ''
   try {
@@ -40,6 +53,31 @@ async function parse() {
     error.value = apiErrorMessage(caught)
   } finally {
     parsing.value = false
+  }
+}
+
+function handleFullTextPaste(event: ClipboardEvent) {
+  const clipboardData = event.clipboardData
+  const textarea = event.currentTarget as HTMLTextAreaElement
+  if (!clipboardData) return
+  const candidate = buildPasteCandidate(
+    fullText.value,
+    clipboardData.getData('text'),
+    textarea.selectionStart,
+    textarea.selectionEnd,
+  )
+  const lengthError = validateFullTextLength(candidate)
+  if (!lengthError) {
+    if (error.value === FULL_TEXT_TOO_LONG_MESSAGE) error.value = ''
+    return
+  }
+  event.preventDefault()
+  error.value = lengthError
+}
+
+function handleFullTextInput() {
+  if (error.value === FULL_TEXT_TOO_LONG_MESSAGE && !validateFullTextLength(fullText.value)) {
+    error.value = ''
   }
 }
 
@@ -122,10 +160,10 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
 
     <div v-if="stage === 'input'" class="card">
       <h2>1. 粘贴全文</h2>
-      <textarea v-model="fullText" :disabled="busy" rows="14" maxlength="500000" placeholder="请粘贴一部法律的完整文本"></textarea>
+      <textarea v-model="fullText" :disabled="busy" rows="14" placeholder="请粘贴一部法律的完整文本" @input="handleFullTextInput" @paste="handleFullTextPaste"></textarea>
       <p v-if="previewIsStale" class="notice">全文已修改，现有解析预览已过期，请重新解析。</p>
       <div class="section-actions">
-        <span class="muted">{{ fullText.length.toLocaleString() }} / 500,000</span>
+        <span class="muted">{{ fullTextLength.toLocaleString() }} / 500,000</span>
         <div class="actions">
           <button v-if="preview" class="secondary" :disabled="busy || previewIsStale" @click="returnToPreview">返回已有预览</button>
           <button :disabled="busy || !fullText.trim()" @click="parse">{{ parsing ? '解析中…' : '解析并预览' }}</button>

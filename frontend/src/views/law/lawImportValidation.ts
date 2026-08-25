@@ -15,9 +15,31 @@ const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/
 const VALIDITY_STATUSES = new Set<string>(['ACTIVE', 'NOT_EFFECTIVE', 'INVALID', 'REPEALED'])
 const LEADING_BLANK_LINES = /^(?:[^\S\r\n\v\f\u0085\u2028\u2029]*(?:\r\n|[\n\v\f\r\u0085\u2028\u2029]))+/
 const TRAILING_BLANK_LINES = /(?:(?:\r\n|[\n\v\f\r\u0085\u2028\u2029])[^\S\r\n\v\f\u0085\u2028\u2029]*)+$/
+const MAX_FULL_TEXT_CODE_POINTS = 500_000
+export const FULL_TEXT_TOO_LONG_MESSAGE = '完整法律文本最多500000个字符，请改用支持的文件导入方式'
 
-function codePointLength(value: string): number {
+export function codePointLength(value: string): number {
   return Array.from(value).length
+}
+
+export function fullTextCodePointLength(value: string): number {
+  const withoutBom = value.startsWith('\uFEFF') ? value.slice(1) : value
+  return codePointLength(withoutBom)
+}
+
+export function validateFullTextLength(value: string): string | null {
+  return fullTextCodePointLength(value) > MAX_FULL_TEXT_CODE_POINTS
+    ? FULL_TEXT_TOO_LONG_MESSAGE
+    : null
+}
+
+export function buildPasteCandidate(
+  currentText: string,
+  pasteText: string,
+  selectionStart: number,
+  selectionEnd: number,
+): string {
+  return currentText.slice(0, selectionStart) + pasteText + currentText.slice(selectionEnd)
 }
 
 function normalizedArticleBody(value: string): string {

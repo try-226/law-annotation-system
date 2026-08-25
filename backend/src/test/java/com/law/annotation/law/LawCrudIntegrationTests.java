@@ -156,22 +156,18 @@ class LawCrudIntegrationTests {
             assertThat(item.id()).isEqualTo("ordinary-law");
             assertThat(item.displayStatus()).isEqualTo(LawDisplayStatus.ANNOTATING);
         });
-        assertThat(revising.items()).singleElement().satisfies(item -> {
-            assertThat(item.id()).isEqualTo("revision-law");
-            assertThat(item.displayStatus()).isEqualTo(LawDisplayStatus.REVISING);
-        });
-        assertThat(pendingReview.items()).singleElement().satisfies(item -> {
-            assertThat(item.id()).isEqualTo("review-law");
-            assertThat(item.displayStatus()).isEqualTo(LawDisplayStatus.PENDING_REVIEW);
-        });
+        assertThat(revising.items())
+                .extracting(LawListItemResponse::id)
+                .containsExactly("rereview-law", "review-law", "revision-law");
+        assertThat(revising.items())
+                .extracting(LawListItemResponse::displayStatus)
+                .containsOnly(LawDisplayStatus.REVISING);
+        assertThat(pendingReview.items()).isEmpty();
         assertThat(partiallyRejected.items()).singleElement().satisfies(item -> {
             assertThat(item.id()).isEqualTo("rejected-law");
             assertThat(item.displayStatus()).isEqualTo(LawDisplayStatus.PARTIALLY_REJECTED);
         });
-        assertThat(pendingRereview.items()).singleElement().satisfies(item -> {
-            assertThat(item.id()).isEqualTo("rereview-law");
-            assertThat(item.displayStatus()).isEqualTo(LawDisplayStatus.PENDING_REREVIEW);
-        });
+        assertThat(pendingRereview.items()).isEmpty();
     }
 
     @Test

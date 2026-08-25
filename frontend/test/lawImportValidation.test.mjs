@@ -179,3 +179,40 @@ test('nextArticleOrder uses max order plus one', () => {
   assert.equal(lawValidation.nextArticleOrder([{ order: 0 }, { order: 3 }]), 4)
   assert.equal(lawValidation.nextArticleOrder([{ order: 0 }, { order: 2 }]), 3)
 })
+
+test('full text length accepts 500000 Unicode code points including one emoji', () => {
+  const value = `${'法'.repeat(499_999)}😀`
+  assert.equal(typeof lawValidation.fullTextCodePointLength, 'function')
+  assert.equal(lawValidation.fullTextCodePointLength(value), 500_000)
+  assert.equal(lawValidation.validateFullTextLength(value), null)
+})
+
+test('full text length rejects 500001 Unicode code points with the required guidance', () => {
+  const value = `${'法'.repeat(500_000)}😀`
+  assert.equal(lawValidation.fullTextCodePointLength(value), 500_001)
+  assert.equal(
+    lawValidation.validateFullTextLength(value),
+    '完整法律文本最多500000个字符，请改用支持的文件导入方式',
+  )
+})
+
+test('full text length ignores one leading BOM like the backend parser', () => {
+  const value = `\uFEFF${'法'.repeat(500_000)}`
+  assert.equal(lawValidation.fullTextCodePointLength(value), 500_000)
+  assert.equal(lawValidation.validateFullTextLength(value), null)
+})
+
+test('paste candidate allows a result at the limit and rejects one over it', () => {
+  const current = '法'.repeat(499_999)
+  const allowed = lawValidation.buildPasteCandidate(current, '条', current.length, current.length)
+  const rejected = lawValidation.buildPasteCandidate(current, '条文', current.length, current.length)
+  assert.equal(lawValidation.validateFullTextLength(allowed), null)
+  assert.notEqual(lawValidation.validateFullTextLength(rejected), null)
+})
+
+test('paste candidate applies UTF-16 selection replacement before counting code points', () => {
+  const current = '法😀律'
+  const candidate = lawValidation.buildPasteCandidate(current, '条', 1, 3)
+  assert.equal(candidate, '法条律')
+  assert.equal(lawValidation.fullTextCodePointLength(candidate), 3)
+})

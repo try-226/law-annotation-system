@@ -118,6 +118,54 @@ class LawQueryServiceTests {
         verify(contentVersionRepository, never()).findByIdIn(any());
     }
 
+    @Test
+    void revisingFilterIncludesEveryUnfinishedRevisionTaskState() {
+        List<TaskStatusProjection> revisionTasks = List.of(
+                task("revision-pending", TaskType.REVISION, TaskState.PENDING_ANNOTATION),
+                task("revision-annotating", TaskType.REVISION, TaskState.ANNOTATING),
+                task("revision-review", TaskType.REVISION, TaskState.PENDING_REVIEW),
+                task("revision-rejected", TaskType.REVISION, TaskState.PARTIALLY_REJECTED),
+                task("revision-rereview", TaskType.REVISION, TaskState.PENDING_REREVIEW));
+        when(taskRepository.findStatusesByTaskStateIn(TaskStateRules.unfinishedStates()))
+                .thenReturn(revisionTasks);
+        when(lawSearchRepository.search(any(), any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        service.list(null, null, LawDisplayStatus.REVISING, 0, 10);
+
+        ArgumentCaptor<LawSearchFilter> filterCaptor = ArgumentCaptor.forClass(LawSearchFilter.class);
+        verify(lawSearchRepository).search(filterCaptor.capture(), any());
+        assertThat(filterCaptor.getValue().includeLawIds()).containsExactlyInAnyOrder(
+                "revision-pending",
+                "revision-annotating",
+                "revision-review",
+                "revision-rejected",
+                "revision-rereview");
+    }
+
+    @Test
+    void revisionReviewStatesDoNotMatchOrdinaryReviewDisplayFilters() {
+        List<TaskStatusProjection> revisionReviewTasks = List.of(
+                task("revision-review", TaskType.REVISION, TaskState.PENDING_REVIEW),
+                task("revision-rejected", TaskType.REVISION, TaskState.PARTIALLY_REJECTED),
+                task("revision-rereview", TaskType.REVISION, TaskState.PENDING_REREVIEW));
+        when(taskRepository.findStatusesByTaskStateIn(TaskStateRules.unfinishedStates()))
+                .thenReturn(revisionReviewTasks);
+        when(lawSearchRepository.search(any(), any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        for (LawDisplayStatus displayStatus : List.of(
+                LawDisplayStatus.PENDING_REVIEW,
+                LawDisplayStatus.PARTIALLY_REJECTED,
+                LawDisplayStatus.PENDING_REREVIEW)) {
+            PageResponse<LawListItemResponse> result = service.list(
+                    null, null, displayStatus, 0, 10);
+            assertThat(result.items()).isEmpty();
+        }
+
+        verify(lawSearchRepository, never()).search(any(), any());
+    }
+
     private static LawDocument law(String lawId, String contentVersionId) {
         LawDocument law = mock(LawDocument.class);
         when(law.getId()).thenReturn(lawId);
