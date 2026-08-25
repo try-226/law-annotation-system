@@ -14,6 +14,7 @@ import com.law.annotation.law.dto.LawBaseInfoInput;
 import com.law.annotation.law.dto.LawImportArticleInput;
 import com.law.annotation.law.dto.LawImportConfirmRequest;
 import com.law.annotation.law.dto.LawStructureInput;
+import com.law.annotation.law.dto.LawDetailResponse;
 import com.law.annotation.version.ContentVersionDocument;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -27,7 +28,8 @@ class LawImportServiceTests {
     void confirmMapsPreviewReferencesAndDelegatesCreationToPr04Service() {
         LawCreationService creationService = org.mockito.Mockito.mock(LawCreationService.class);
         LawTextParser parser = org.mockito.Mockito.mock(LawTextParser.class);
-        LawImportService service = new LawImportService(parser, creationService);
+        LawQueryService queryService = org.mockito.Mockito.mock(LawQueryService.class);
+        LawImportService service = new LawImportService(parser, creationService, queryService);
         Instant now = Instant.parse("2026-08-19T00:00:00Z");
         LawDocument law = LawDocument.createInitial(
                 "law-1",
@@ -54,6 +56,10 @@ class LawImportServiceTests {
                         any(),
                         eq("admin-1")))
                 .thenReturn(new InitialLawCreation(law, c1));
+        LawDetailResponse expectedDetail = org.mockito.Mockito.mock(LawDetailResponse.class);
+        when(expectedDetail.currentContentVersionId()).thenReturn("c1");
+        when(expectedDetail.displayStatus()).thenReturn(LawDisplayStatus.UNANNOTATED);
+        when(queryService.getDetail("law-1")).thenReturn(expectedDetail);
 
         LawImportConfirmRequest request = new LawImportConfirmRequest(
                 new LawBaseInfoInput(
@@ -71,7 +77,10 @@ class LawImportServiceTests {
                 List.of(new LawImportArticleInput(
                         "preview-article-1", "第一条", "正文", 0)));
 
-        assertThat(service.confirm(request, "admin-1").currentContentVersionId()).isEqualTo("c1");
+        LawDetailResponse result = service.confirm(request, "admin-1");
+
+        assertThat(result.currentContentVersionId()).isEqualTo("c1");
+        assertThat(result.displayStatus()).isEqualTo(LawDisplayStatus.UNANNOTATED);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<LawStructureNode>> structureCaptor = ArgumentCaptor.forClass(List.class);
@@ -85,6 +94,7 @@ class LawImportServiceTests {
                 structureCaptor.capture(),
                 articleCaptor.capture(),
                 eq("admin-1"));
+        verify(queryService).getDetail("law-1");
         assertThat(structureCaptor.getValue().getFirst().getArticleIds())
                 .containsExactly(articleCaptor.getValue().getFirst().articleId());
     }
@@ -92,7 +102,8 @@ class LawImportServiceTests {
     @Test
     void confirmRejectsZeroArticlesBeforeCreationService() {
         LawCreationService creationService = org.mockito.Mockito.mock(LawCreationService.class);
-        LawImportService service = new LawImportService(new LawTextParser(), creationService);
+        LawImportService service = new LawImportService(
+                new LawTextParser(), creationService, org.mockito.Mockito.mock(LawQueryService.class));
         LawImportConfirmRequest request = new LawImportConfirmRequest(
                 baseInfo(),
                 List.of(),
@@ -109,7 +120,8 @@ class LawImportServiceTests {
     @Test
     void confirmRejectsDuplicateClientKeysBeforeCreationService() {
         LawCreationService creationService = org.mockito.Mockito.mock(LawCreationService.class);
-        LawImportService service = new LawImportService(new LawTextParser(), creationService);
+        LawImportService service = new LawImportService(
+                new LawTextParser(), creationService, org.mockito.Mockito.mock(LawQueryService.class));
         LawImportConfirmRequest request = new LawImportConfirmRequest(
                 baseInfo(),
                 List.of(),
@@ -130,7 +142,8 @@ class LawImportServiceTests {
         LawCreationService creationService = org.mockito.Mockito.mock(LawCreationService.class);
         when(creationService.createInitialLaw(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new IllegalArgumentException("条号格式不合法"));
-        LawImportService service = new LawImportService(new LawTextParser(), creationService);
+        LawImportService service = new LawImportService(
+                new LawTextParser(), creationService, org.mockito.Mockito.mock(LawQueryService.class));
         LawImportConfirmRequest request = new LawImportConfirmRequest(
                 baseInfo(),
                 List.of(),

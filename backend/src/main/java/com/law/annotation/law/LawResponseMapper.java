@@ -11,24 +11,32 @@ final class LawResponseMapper {
     private LawResponseMapper() {
     }
 
-    static LawListItemResponse toListItem(LawDocument law, ContentVersionDocument version) {
+    static LawListItemResponse toListItem(
+            LawDocument law,
+            ContentVersionDocument version,
+            LawDisplayStatus displayStatus) {
         return new LawListItemResponse(
                 law.getId(),
                 law.getName(),
                 law.getIssuingAuthority(),
                 law.getPublicationDate(),
                 law.getValidityStatus(),
+                displayStatus,
                 version.getSemanticArticlesSnapshot().size(),
                 law.getUpdatedAt());
     }
 
-    static LawDetailResponse toDetail(LawDocument law, ContentVersionDocument version) {
+    static LawDetailResponse toDetail(
+            LawDocument law,
+            ContentVersionDocument version,
+            LawDisplayStatus displayStatus) {
         return new LawDetailResponse(
                 law.getId(),
                 law.getName(),
                 law.getIssuingAuthority(),
                 law.getPublicationDate(),
                 law.getValidityStatus(),
+                displayStatus,
                 law.getStructure().stream()
                         .sorted(Comparator.comparingInt(LawStructureNode::getOrder))
                         .map(node -> new LawDetailResponse.StructureNode(

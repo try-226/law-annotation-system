@@ -44,9 +44,6 @@ async function handleLogout(): Promise<void> {
         <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-list' }" class="nav-item">
           <span>§</span>法律管理
         </RouterLink>
-        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-import' }" class="nav-item">
-          <span>＋</span>导入法律
-        </RouterLink>
         <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'admin-tasks' }" class="nav-item">
           <span>☷</span>任务管理
         </RouterLink>

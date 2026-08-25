@@ -19,6 +19,7 @@ import com.law.annotation.law.ArticleSnapshot;
 import com.law.annotation.law.LawAuditDocument;
 import com.law.annotation.law.LawAuditRepository;
 import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.LawDisplayStatusResolver;
 import com.law.annotation.law.LawErrorCodes;
 import com.law.annotation.law.LawMaintenanceService;
 import com.law.annotation.law.LawMutationGuard;
@@ -26,6 +27,7 @@ import com.law.annotation.law.LawOperationCoordinator;
 import com.law.annotation.law.LawQueryService;
 import com.law.annotation.law.LawRecycleService;
 import com.law.annotation.law.LawRepository;
+import com.law.annotation.law.LawSearchRepository;
 import com.law.annotation.law.LawStructureNode;
 import com.law.annotation.law.LawStructureNodeType;
 import com.law.annotation.law.dto.UpdateLawBaseRequest;
@@ -88,7 +90,12 @@ class TaskPersistenceIntegrationTests {
         fieldConfigRepository = factory.getRepository(FieldConfigRepository.class);
         new TaskIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
         fieldConfigService = new FieldConfigService(fieldConfigRepository);
-        lawQueryService = new LawQueryService(lawRepository, contentVersionRepository);
+        lawQueryService = new LawQueryService(
+                lawRepository,
+                new LawSearchRepository(mongoTemplate),
+                contentVersionRepository,
+                taskRepository,
+                new LawDisplayStatusResolver());
         operationCoordinator = new LawOperationCoordinator(mongoTemplate);
         taskService = new TaskService(
                 taskRepository,

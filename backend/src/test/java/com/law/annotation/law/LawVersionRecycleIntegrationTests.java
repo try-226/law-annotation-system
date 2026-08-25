@@ -57,8 +57,14 @@ class LawVersionRecycleIntegrationTests {
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
         lawAuditRepository = factory.getRepository(LawAuditRepository.class);
+        TaskRepository taskRepository = factory.getRepository(TaskRepository.class);
         new LawDomainIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
-        queryService = new LawQueryService(lawRepository, contentVersionRepository);
+        queryService = new LawQueryService(
+                lawRepository,
+                new LawSearchRepository(mongoTemplate),
+                contentVersionRepository,
+                taskRepository,
+                new LawDisplayStatusResolver());
     }
 
     @AfterAll
@@ -364,6 +370,7 @@ class LawVersionRecycleIntegrationTests {
         LawDetailResponse restored = recycleService.restoreLaw(creation.law().getId());
 
         assertThat(restored.id()).isEqualTo(creation.law().getId());
+        assertThat(restored.displayStatus()).isEqualTo(LawDisplayStatus.PENDING_REVISION);
         assertThat(lawRepository.findById(creation.law().getId()).orElseThrow().isDeleted())
                 .isFalse();
         LawDocument stored = lawRepository.findById(creation.law().getId()).orElseThrow();
