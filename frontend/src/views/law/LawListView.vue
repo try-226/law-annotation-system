@@ -4,13 +4,15 @@ import { onMounted, ref } from 'vue'
 import { apiErrorMessage, listLaws } from '../../api/laws'
 import type { PageResponse } from '../../api/types'
 import type { LawDisplayStatus, LawListItem, ValidityStatus } from '../../types/law'
+import { validateSearch } from '../../utils/validation'
 
 const keyword = ref('')
 const validityStatus = ref<ValidityStatus | ''>('')
 const displayStatus = ref<LawDisplayStatus | ''>('')
 const loading = ref(false)
 const error = ref('')
-const result = ref<PageResponse<LawListItem>>({ items: [], page: 0, size: 10, totalElements: 0, totalPages: 0 })
+const pageSize = 10
+const result = ref<PageResponse<LawListItem>>(emptyPage())
 let requestSequence = 0
 
 const validityLabels: Record<ValidityStatus, string> = {
@@ -23,18 +25,37 @@ const displayLabels: Record<LawDisplayStatus, string> = {
   REVISING: '修订中', COMPLETED: '已完成',
 }
 
+function emptyPage(page = 0): PageResponse<LawListItem> {
+  return { items: [], page, size: pageSize, totalElements: 0, totalPages: 0 }
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
 async function load(page = 0) {
-  if (loading.value) return
   const currentRequest = ++requestSequence
+  const searchError = validateSearch(keyword.value)
+  if (searchError) {
+    loading.value = false
+    error.value = searchError
+    result.value = emptyPage(page)
+    return
+  }
   loading.value = true
   error.value = ''
+  result.value = emptyPage(page)
   try {
     const response = await listLaws({
       name: keyword.value,
       validityStatus: validityStatus.value || undefined,
       displayStatus: displayStatus.value || undefined,
       page,
-      size: result.value.size,
+      size: pageSize,
     })
     if (currentRequest === requestSequence) result.value = response
   } catch (caught) {
@@ -67,14 +88,14 @@ onMounted(() => void load())
 
     <div class="card">
       <form class="filter-grid" @submit.prevent="load(0)">
-        <label class="field"><span>法律名称</span><input v-model="keyword" placeholder="按法律名称搜索" /></label>
-        <label class="field"><span>效力状态</span><select v-model="validityStatus"><option value="">全部</option><option v-for="(label, value) in validityLabels" :key="value" :value="value">{{ label }}</option></select></label>
-        <label class="field"><span>业务状态</span><select v-model="displayStatus"><option value="">全部</option><option v-for="(label, value) in displayLabels" :key="value" :value="value">{{ label }}</option></select></label>
+        <label class="field"><span>法律名称</span><input v-model="keyword" maxlength="100" :disabled="loading" placeholder="按法律名称搜索" /></label>
+        <label class="field"><span>效力状态</span><select v-model="validityStatus" :disabled="loading"><option value="">全部</option><option v-for="(label, value) in validityLabels" :key="value" :value="value">{{ label }}</option></select></label>
+        <label class="field"><span>业务状态</span><select v-model="displayStatus" :disabled="loading"><option value="">全部</option><option v-for="(label, value) in displayLabels" :key="value" :value="value">{{ label }}</option></select></label>
         <div class="filter-actions"><button :disabled="loading" type="submit">{{ loading ? '查询中…' : '查询' }}</button><button class="secondary" :disabled="loading" type="button" @click="resetFilters">重置</button></div>
       </form>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <div v-if="loading && result.items.length === 0" class="empty">正在加载法律数据…</div>
+      <div v-if="loading" class="empty">正在加载法律数据…</div>
       <div v-else-if="!loading && result.items.length === 0" class="empty">没有符合条件的法律</div>
       <div v-else class="table-scroll">
         <table>
@@ -85,7 +106,7 @@ onMounted(() => void load())
               <td>{{ law.issuingAuthority }}</td><td>{{ law.publicationDate }}</td>
               <td><span class="badge">{{ validityLabels[law.validityStatus] }}</span></td>
               <td><span class="badge business-status">{{ displayLabels[law.displayStatus] }}</span></td>
-              <td>{{ law.articleCount }}</td><td>{{ new Date(law.updatedAt).toLocaleString() }}</td>
+              <td>{{ law.articleCount }}</td><td>{{ formatDateTime(law.updatedAt) }}</td>
               <td><RouterLink class="button secondary small" :to="`/laws/${law.id}`">查看</RouterLink></td>
             </tr>
           </tbody>
