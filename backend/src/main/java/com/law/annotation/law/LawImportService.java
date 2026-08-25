@@ -62,7 +62,10 @@ public class LawImportService {
                     structure,
                     drafts,
                     operatorId);
-            return LawResponseMapper.toDetail(creation.law(), creation.contentVersion());
+            return LawResponseMapper.toDetail(
+                    creation.law(),
+                    creation.contentVersion(),
+                    LawDisplayStatus.UNANNOTATED);
         } catch (ApiException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {

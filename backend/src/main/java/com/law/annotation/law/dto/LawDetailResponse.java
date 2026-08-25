@@ -2,6 +2,7 @@ package com.law.annotation.law.dto;
 
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.law.LawStructureNodeType;
+import com.law.annotation.law.LawDisplayStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -17,6 +18,7 @@ public record LawDetailResponse(
         String currentContentVersionId,
         int currentContentVersionSeq,
         boolean pendingRevision,
+        LawDisplayStatus displayStatus,
         Instant createdAt,
         Instant updatedAt) {
 

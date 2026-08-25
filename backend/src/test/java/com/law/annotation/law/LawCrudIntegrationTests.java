@@ -21,6 +21,8 @@ import com.law.annotation.law.dto.UpdateLawBaseRequest;
 import com.law.annotation.law.dto.UpdateLawStructureRequest;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
+import com.law.annotation.task.TaskDocument;
+import com.law.annotation.task.TaskRepository;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import de.bwaldvogel.mongo.MongoServer;
@@ -49,6 +51,7 @@ class LawCrudIntegrationTests {
     private static LawRepository lawRepository;
     private static ContentVersionRepository contentVersionRepository;
     private static LawAuditRepository lawAuditRepository;
+    private static TaskRepository taskRepository;
     private static LawQueryService queryService;
 
     @BeforeAll
@@ -60,8 +63,12 @@ class LawCrudIntegrationTests {
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
         lawAuditRepository = factory.getRepository(LawAuditRepository.class);
+        taskRepository = factory.getRepository(TaskRepository.class);
         new LawDomainIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
-        queryService = new LawQueryService(lawRepository, contentVersionRepository);
+        queryService = new LawQueryService(
+                lawRepository,
+                contentVersionRepository,
+                new LawDisplayStatusResolver(taskRepository));
     }
 
     @AfterAll
@@ -75,6 +82,7 @@ class LawCrudIntegrationTests {
         mongoTemplate.remove(new Query(), LawDocument.class);
         mongoTemplate.remove(new Query(), ContentVersionDocument.class);
         mongoTemplate.remove(new Query(), LawAuditDocument.class);
+        mongoTemplate.remove(new Query(), TaskDocument.class);
     }
 
     @Test

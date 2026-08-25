@@ -1,6 +1,7 @@
 package com.law.annotation.law.dto;
 
 import com.law.annotation.common.enums.ValidityStatus;
+import com.law.annotation.law.LawDisplayStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -10,6 +11,7 @@ public record LawListItemResponse(
         String issuingAuthority,
         LocalDate publicationDate,
         ValidityStatus validityStatus,
+        LawDisplayStatus displayStatus,
         int articleCount,
         Instant updatedAt) {
 }

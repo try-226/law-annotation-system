@@ -3,7 +3,7 @@ package com.law.annotation.task;
 import com.law.annotation.common.enums.TaskState;
 import java.util.List;
 
-final class TaskStateRules {
+public final class TaskStateRules {
 
     static final List<TaskState> UNFINISHED_STATES = List.of(
             TaskState.PENDING_ANNOTATION,
@@ -13,5 +13,9 @@ final class TaskStateRules {
             TaskState.PENDING_REREVIEW);
 
     private TaskStateRules() {
+    }
+
+    public static List<TaskState> unfinishedStates() {
+        return UNFINISHED_STATES;
     }
 }

@@ -24,12 +24,15 @@ public class LawQueryService {
 
     private final LawRepository lawRepository;
     private final ContentVersionRepository contentVersionRepository;
+    private final LawDisplayStatusResolver displayStatusResolver;
 
     public LawQueryService(
             LawRepository lawRepository,
-            ContentVersionRepository contentVersionRepository) {
+            ContentVersionRepository contentVersionRepository,
+            LawDisplayStatusResolver displayStatusResolver) {
         this.lawRepository = lawRepository;
         this.contentVersionRepository = contentVersionRepository;
+        this.displayStatusResolver = displayStatusResolver;
     }
 
     public PageResponse<LawListItemResponse> list(String name, int page, int size) {
@@ -46,8 +49,12 @@ public class LawQueryService {
                         .toList())
                 .stream()
                 .collect(Collectors.toMap(ContentVersionDocument::getId, Function.identity()));
+        Map<String, LawDisplayStatus> displayStatuses = displayStatusResolver.resolve(laws.getContent());
         List<LawListItemResponse> items = laws.getContent().stream()
-                .map(law -> LawResponseMapper.toListItem(law, requireCurrentVersion(law, versions)))
+                .map(law -> LawResponseMapper.toListItem(
+                        law,
+                        requireCurrentVersion(law, versions),
+                        displayStatuses.get(law.getId())))
                 .toList();
         return new PageResponse<>(
                 items,
@@ -93,7 +100,8 @@ public class LawQueryService {
                 .findById(law.getCurrentContentVersionId())
                 .filter(candidate -> law.getId().equals(candidate.getLawId()))
                 .orElseThrow(LawQueryService::versionInconsistent);
-        return LawResponseMapper.toDetail(law, version);
+        LawDisplayStatus displayStatus = displayStatusResolver.resolve(List.of(law)).get(law.getId());
+        return LawResponseMapper.toDetail(law, version, displayStatus);
     }
 
     LawDocument requireVisibleLaw(String lawId) {

@@ -47,6 +47,8 @@ th { color: #64748b; font-size: 13px; }
 .full { grid-column: 1 / -1; }
 .section-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .empty { padding: 36px; text-align: center; color: #64748b; }
+.error-state { display: grid; justify-items: center; gap: 12px; }
+.error-state .error { margin: 0; }
 .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e8eef7; color: #21436b; font-size: 12px; }
 .issue-list { margin: 0; padding-left: 20px; color: #9a3412; }
 .eyebrow { margin: 0 0 7px; color: #2868c7; font-size: 12px; font-weight: 700; letter-spacing: .04em; }

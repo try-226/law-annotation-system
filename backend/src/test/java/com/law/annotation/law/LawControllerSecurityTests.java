@@ -22,6 +22,7 @@ import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.GlobalExceptionHandler;
 import com.law.annotation.common.response.PageResponse;
 import com.law.annotation.law.dto.LawDetailResponse;
+import com.law.annotation.law.dto.LawListItemResponse;
 import com.law.annotation.user.UserDocument;
 import com.law.annotation.user.UserRepository;
 import java.time.Instant;
@@ -84,12 +85,23 @@ class LawControllerSecurityTests {
     void adminCanAccessLawList() throws Exception {
         UserDocument admin = activeUser("admin", Role.ADMIN);
         when(userRepository.findById("admin")).thenReturn(Optional.of(admin));
+        Instant now = Instant.parse("2026-08-19T00:00:00Z");
         when(lawQueryService.list(null, 0, 10))
-                .thenReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+                .thenReturn(new PageResponse<>(List.of(new LawListItemResponse(
+                        "law-1",
+                        "测试法",
+                        "制定机关",
+                        LocalDate.of(2026, 8, 19),
+                        ValidityStatus.ACTIVE,
+                        LawDisplayStatus.PENDING_REVIEW,
+                        1,
+                        now)), 0, 10, 1, 1));
 
         mockMvc.perform(get("/laws").with(user(UserPrincipal.from(admin))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items").isArray());
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items[0].displayStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.items[0].validityStatus").value("ACTIVE"));
     }
 
     @Test
@@ -108,6 +120,7 @@ class LawControllerSecurityTests {
                 "content-1",
                 1,
                 false,
+                LawDisplayStatus.UNANNOTATED,
                 now,
                 now));
 
@@ -115,7 +128,8 @@ class LawControllerSecurityTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value("law-1"))
                 .andExpect(jsonPath("$.data.currentContentVersionId").value("content-1"))
-                .andExpect(jsonPath("$.data.currentContentVersionSeq").value(1));
+                .andExpect(jsonPath("$.data.currentContentVersionSeq").value(1))
+                .andExpect(jsonPath("$.data.displayStatus").value("UNANNOTATED"));
     }
 
     @Test

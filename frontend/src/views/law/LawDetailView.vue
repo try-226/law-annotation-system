@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 
 import {
   addLawArticle,
-  apiErrorMessage,
   deleteLaw,
   deleteLawArticle,
   getLaw,
@@ -14,8 +13,10 @@ import {
 } from '../../api/laws'
 import { listTasks } from '../../api/tasks'
 import type {
+  LawArticle,
   LawBaseInfo,
   LawDetail,
+  LawDisplayStatus,
   LawStructureInput,
   LawStructureNode,
   StructureNodeType,
@@ -27,11 +28,20 @@ import {
   TASK_TYPE_LABELS,
   type TaskListItem,
 } from '../../types/task'
+import { formatDateTimeToMinute } from '../../utils/dateTime'
+import { locatorValidationMessage } from '../../utils/errors'
 
 interface TreeRow {
   node: LawStructureNode
   depth: number
   hasChildren: boolean
+}
+
+interface ArticleEditBuffer {
+  articleId: string
+  number: string
+  body: string
+  order: number
 }
 
 const route = useRoute()
@@ -46,6 +56,7 @@ const error = ref('')
 const message = ref('')
 const expandedNodeIds = ref<Set<string>>(new Set())
 const selectedNodeId = ref<string | null>(null)
+const articleEdit = ref<ArticleEditBuffer | null>(null)
 let manualNodeIndex = 0
 
 const base = reactive<LawBaseInfo>({
@@ -75,14 +86,38 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
   { value: 'SECTION', label: '节' },
 ]
 
+const displayStatusLabels: Record<LawDisplayStatus, string> = {
+  UNANNOTATED: '未标注',
+  PENDING_ANNOTATION: '待标注',
+  ANNOTATING: '标注中',
+  PENDING_REVIEW: '待审核',
+  PARTIALLY_REJECTED: '部分驳回',
+  PENDING_REREVIEW: '待复审',
+  COMPLETED: '已完成',
+  PENDING_REVISION: '待修订',
+  REVISING: '修订中',
+}
+const activeTaskDisplayStatuses: ReadonlySet<LawDisplayStatus> = new Set([
+  'PENDING_ANNOTATION',
+  'ANNOTATING',
+  'PENDING_REVIEW',
+  'PARTIALLY_REJECTED',
+  'PENDING_REREVIEW',
+  'REVISING',
+])
+
 const currentTask = computed(() => (
   tasks.value.find((task) => isUnfinishedTaskState(task.taskState)) ?? null
 ))
 const latestApprovedTask = computed(() => (
   tasks.value.find((task) => task.taskState === 'APPROVED') ?? null
 ))
-const hasActiveTask = computed(() => currentTask.value !== null)
-const maintenanceDisabled = computed(() => hasActiveTask.value || Boolean(saving.value))
+const hasActiveTask = computed(() => (
+  currentTask.value !== null
+  || (detail.value !== null && activeTaskDisplayStatuses.has(detail.value.displayStatus))
+))
+const mutationBusy = computed(() => hasActiveTask.value || Boolean(saving.value))
+const maintenanceDisabled = computed(() => mutationBusy.value || articleEdit.value !== null)
 const lockReason = computed(() => (
   hasActiveTask.value
     ? '该法律存在未结束任务，基础信息、结构、法条和删除操作均已锁定。'
@@ -155,14 +190,9 @@ const selectedStructureTitle = computed(() => (
     : '全部法条'
 ))
 
-const displayStatus = computed(() => {
-  if (!detail.value) return ''
-  if (currentTask.value?.taskType === 'REVISION') return '修订中'
-  if (detail.value.pendingRevision) return '待修订'
-  if (currentTask.value) return TASK_STATE_LABELS[currentTask.value.taskState]
-  if (latestApprovedTask.value) return '已完成'
-  return '未标注'
-})
+const displayStatus = computed(() => (
+  detail.value ? displayStatusLabels[detail.value.displayStatus] : ''
+))
 
 function sync(value: LawDetail, resetTree = false) {
   detail.value = value
@@ -188,6 +218,9 @@ function sync(value: LawDetail, resetTree = false) {
 async function load() {
   loading.value = true
   error.value = ''
+  detail.value = null
+  tasks.value = []
+  articleEdit.value = null
   try {
     const [law, taskPage] = await Promise.all([
       getLaw(lawId),
@@ -196,7 +229,7 @@ async function load() {
     tasks.value = taskPage.items
     sync(law, true)
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    error.value = locatorValidationMessage(caught, '法律详情加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -214,7 +247,7 @@ async function run(label: string, operation: () => Promise<LawDetail>) {
     sync(await operation())
     message.value = '保存成功'
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    error.value = locatorValidationMessage(caught)
   } finally {
     saving.value = ''
   }
@@ -258,6 +291,51 @@ async function removeArticle(articleId: string) {
   await run('delete-' + articleId, () => deleteLawArticle(lawId, articleId))
 }
 
+function startArticleEdit(article: LawArticle) {
+  if (maintenanceDisabled.value) return
+  articleEdit.value = {
+    articleId: article.articleId,
+    number: article.number,
+    body: article.body,
+    order: article.order,
+  }
+  error.value = ''
+  message.value = ''
+}
+
+function cancelArticleEdit() {
+  if (saving.value) return
+  articleEdit.value = null
+  error.value = ''
+}
+
+async function saveArticleEdit() {
+  const buffer = articleEdit.value
+  if (!buffer || mutationBusy.value) return
+  if (hasActiveTask.value) {
+    error.value = lockReason.value
+    return
+  }
+  const label = 'article-' + buffer.articleId
+  saving.value = label
+  error.value = ''
+  message.value = ''
+  try {
+    const updated = await updateLawArticle(lawId, buffer.articleId, {
+      number: buffer.number,
+      body: buffer.body,
+      order: buffer.order,
+    })
+    sync(updated)
+    articleEdit.value = null
+    message.value = '保存成功'
+  } catch (caught) {
+    error.value = locatorValidationMessage(caught)
+  } finally {
+    saving.value = ''
+  }
+}
+
 async function removeLaw() {
   if (maintenanceDisabled.value) return
   if (!window.confirm('确认删除这部法律？有历史数据时将进入回收站。')) return
@@ -267,7 +345,7 @@ async function removeLaw() {
     await deleteLaw(lawId)
     await router.push({ name: 'law-list' })
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    error.value = locatorValidationMessage(caught)
     saving.value = ''
   }
 }
@@ -297,11 +375,6 @@ function articlePath(articleId: string) {
   return candidates[0]?.join(' / ') || '未归入章节'
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '--' : date.toLocaleString('zh-CN')
-}
-
 onMounted(() => { void load() })
 </script>
 
@@ -318,7 +391,7 @@ onMounted(() => { void load() })
         <button
           class="danger"
           type="button"
-          :disabled="maintenanceDisabled"
+          :disabled="loading || !detail || maintenanceDisabled"
           :title="lockReason"
           @click="removeLaw"
         >
@@ -330,6 +403,9 @@ onMounted(() => { void load() })
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="notice success">{{ message }}</p>
     <div v-if="loading" class="card empty">正在加载法律详情…</div>
+    <div v-else-if="!detail" class="card empty error-state">
+      <button class="secondary small" type="button" @click="load">重试加载</button>
+    </div>
 
     <template v-else-if="detail">
       <p v-if="hasActiveTask" class="notice lock-notice">
@@ -343,7 +419,7 @@ onMounted(() => { void load() })
         <span class="status-pill primary">{{ displayStatus }}</span>
         <span class="status-pill">{{ validityLabels[detail.validityStatus] }}</span>
         <span class="status-pill">C{{ detail.currentContentVersionSeq }}</span>
-        <span class="summary-time">更新于 {{ formatDateTime(detail.updatedAt) }}</span>
+        <span class="summary-time">更新于 {{ formatDateTimeToMinute(detail.updatedAt) }}</span>
       </div>
 
       <section class="card" aria-labelledby="law-base-heading">
@@ -453,40 +529,64 @@ onMounted(() => { void load() })
                   <h3>{{ article.number }}</h3>
                   <span>{{ articlePath(article.articleId) }}</span>
                 </div>
-                <div class="row-grid article-editor">
-                  <label class="field">
-                    <span>条号</span>
-                    <input v-model="article.number" maxlength="50" :disabled="maintenanceDisabled" />
-                  </label>
-                  <label class="field">
-                    <span>顺序</span>
-                    <input v-model.number="article.order" min="0" type="number" :disabled="maintenanceDisabled" />
-                  </label>
-                  <label class="field full">
-                    <span>正文</span>
-                    <textarea v-model="article.body" rows="5" :disabled="maintenanceDisabled"></textarea>
-                  </label>
-                </div>
-                <div class="section-actions">
-                  <button
-                    class="small"
-                    type="button"
-                    :disabled="maintenanceDisabled"
-                    :title="lockReason"
-                    @click="run('article-' + article.articleId, () => updateLawArticle(lawId, article.articleId, article))"
-                  >
-                    {{ saving === 'article-' + article.articleId ? '保存中…' : '保存法条' }}
-                  </button>
-                  <button
-                    class="danger small"
-                    type="button"
-                    :disabled="maintenanceDisabled"
-                    :title="lockReason"
-                    @click="removeArticle(article.articleId)"
-                  >
-                    删除
-                  </button>
-                </div>
+                <template v-if="articleEdit?.articleId === article.articleId">
+                  <div class="row-grid article-editor">
+                    <label class="field">
+                      <span>条号</span>
+                      <input v-model="articleEdit.number" maxlength="20" :disabled="mutationBusy" />
+                    </label>
+                    <label class="field">
+                      <span>顺序</span>
+                      <input v-model.number="articleEdit.order" min="0" max="2147483647" step="1" type="number" :disabled="mutationBusy" />
+                    </label>
+                    <label class="field full">
+                      <span>正文</span>
+                      <textarea v-model="articleEdit.body" rows="5" :disabled="mutationBusy"></textarea>
+                    </label>
+                  </div>
+                  <div class="section-actions">
+                    <button
+                      class="small"
+                      type="button"
+                      :disabled="mutationBusy"
+                      :title="lockReason"
+                      @click="saveArticleEdit"
+                    >
+                      {{ saving === 'article-' + article.articleId ? '保存中…' : '保存法条' }}
+                    </button>
+                    <button
+                      class="secondary small"
+                      type="button"
+                      :disabled="Boolean(saving)"
+                      @click="cancelArticleEdit"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </template>
+                <template v-else>
+                  <p>{{ article.body }}</p>
+                  <div class="section-actions">
+                    <button
+                      class="secondary small"
+                      type="button"
+                      :disabled="maintenanceDisabled"
+                      :title="lockReason"
+                      @click="startArticleEdit(article)"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      class="danger small"
+                      type="button"
+                      :disabled="maintenanceDisabled"
+                      :title="lockReason"
+                      @click="removeArticle(article.articleId)"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </template>
               </article>
             </div>
           </div>
@@ -534,7 +634,7 @@ onMounted(() => { void load() })
                 </label>
                 <label class="field">
                   <span>顺序</span>
-                  <input v-model.number="node.order" min="0" type="number" :disabled="maintenanceDisabled" />
+                  <input v-model.number="node.order" min="0" max="2147483647" step="1" type="number" :disabled="maintenanceDisabled" />
                 </label>
                 <label class="field">
                   <span>上级结构</span>
@@ -581,11 +681,11 @@ onMounted(() => { void load() })
             <div class="row-grid">
               <label class="field">
                 <span>条号</span>
-                <input v-model="newArticle.number" maxlength="50" :disabled="maintenanceDisabled" />
+                <input v-model="newArticle.number" maxlength="20" :disabled="maintenanceDisabled" />
               </label>
               <label class="field">
                 <span>顺序</span>
-                <input v-model.number="newArticle.order" min="0" type="number" :disabled="maintenanceDisabled" />
+                <input v-model.number="newArticle.order" min="0" max="2147483647" step="1" type="number" :disabled="maintenanceDisabled" />
               </label>
               <label class="field full">
                 <span>正文</span>
@@ -625,6 +725,10 @@ onMounted(() => { void load() })
               >
                 查看任务
               </RouterLink>
+            </div>
+            <div v-else-if="hasActiveTask" class="status-block">
+              <h3>当前任务</h3>
+              <p class="muted">后端状态显示存在未结束任务，当前任务资料未由普通任务接口返回。</p>
             </div>
             <div v-else class="status-block">
               <h3>当前任务</h3>

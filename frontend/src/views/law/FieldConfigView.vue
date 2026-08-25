@@ -8,11 +8,13 @@ import {
   type FieldConfigItem,
   type FieldValueKind,
 } from '../../api/fieldConfig'
-import { apiErrorMessage } from '../../api/laws'
+import { locatorValidationMessage } from '../../utils/errors'
 
 const fieldConfig = ref<FieldConfig>({ fields: [] })
 const loading = ref(true)
+const loaded = ref(false)
 const error = ref('')
+const loadError = ref('')
 const message = ref('')
 const savingFieldKey = ref('')
 
@@ -27,11 +29,14 @@ const typeLabels: Record<FieldValueKind, string> = {
 
 async function load() {
   loading.value = true
+  loaded.value = false
+  loadError.value = ''
   error.value = ''
   try {
     fieldConfig.value = await getFieldConfig()
+    loaded.value = true
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    loadError.value = locatorValidationMessage(caught, '字段配置加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -49,7 +54,7 @@ async function changeRequired(field: FieldConfigItem, event: Event) {
     message.value = '字段必填配置已更新，仅影响之后创建的任务。'
   } catch (caught) {
     checkbox.checked = field.required
-    error.value = apiErrorMessage(caught)
+    error.value = locatorValidationMessage(caught, '字段配置保存失败，请稍后重试')
   } finally {
     savingFieldKey.value = ''
   }
@@ -69,11 +74,20 @@ onMounted(() => { void load() })
       <RouterLink class="button secondary" :to="{ name: 'law-list' }">返回法律列表</RouterLink>
     </div>
 
-    <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="notice success">{{ message }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
     <div v-if="loading" class="card empty">正在读取字段配置…</div>
 
-    <div v-else class="card field-config-card">
+    <div v-else-if="loadError" class="card empty error-state">
+      <p class="error">{{ loadError }}</p>
+      <button class="secondary small" type="button" @click="load">重试</button>
+    </div>
+
+    <div v-else-if="loaded && fieldConfig.fields.length === 0" class="card empty">
+      当前没有可配置字段
+    </div>
+
+    <div v-else-if="loaded" class="card field-config-card">
       <div class="field-config-heading">
         <div>
           <h2>固定字段</h2>

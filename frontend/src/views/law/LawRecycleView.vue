@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { apiErrorMessage, listRecycleLaws, restoreLaw } from '../../api/laws'
+import { listRecycleLaws, restoreLaw } from '../../api/laws'
+import type { PageResponse } from '../../api/types'
 import type {
-  PageResponse,
   RecycleLawListItem,
   ValidityStatus,
 } from '../../types/law'
+import { formatDateTimeToMinute } from '../../utils/dateTime'
+import { locatorValidationMessage } from '../../utils/errors'
 
 const keyword = ref('')
-const loading = ref(false)
+const loading = ref(true)
+const loaded = ref(false)
 const restoringId = ref('')
 const error = ref('')
+const loadError = ref('')
 const message = ref('')
+const requestedPage = ref(0)
 const selectedLaw = ref<RecycleLawListItem | null>(null)
 const result = ref<PageResponse<RecycleLawListItem>>({
   items: [],
@@ -30,15 +35,17 @@ const validityLabels: Record<ValidityStatus, string> = {
 }
 
 async function load(page = 0) {
+  requestedPage.value = page
   loading.value = true
+  loaded.value = false
+  loadError.value = ''
   error.value = ''
+  selectedLaw.value = null
   try {
     result.value = await listRecycleLaws(keyword.value.trim(), page)
-    if (selectedLaw.value && !result.value.items.some((law) => law.id === selectedLaw.value?.id)) {
-      selectedLaw.value = null
-    }
+    loaded.value = true
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    loadError.value = locatorValidationMessage(caught, '回收站加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -57,15 +64,10 @@ async function restore(item: RecycleLawListItem) {
       : result.value.page
     await load(nextPage)
   } catch (caught) {
-    error.value = apiErrorMessage(caught)
+    error.value = locatorValidationMessage(caught, '恢复失败，请稍后重试')
   } finally {
     restoringId.value = ''
   }
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '--' : date.toLocaleString('zh-CN')
 }
 
 onMounted(() => { void load() })
@@ -82,8 +84,8 @@ onMounted(() => { void load() })
       <RouterLink class="button secondary" :to="{ name: 'law-list' }">返回法律列表</RouterLink>
     </div>
 
-    <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="notice success">{{ message }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
 
     <div class="card">
       <form class="toolbar" @submit.prevent="load(0)">
@@ -92,8 +94,12 @@ onMounted(() => { void load() })
       </form>
 
       <div v-if="loading" class="empty">正在读取回收站…</div>
-      <div v-else-if="result.items.length === 0" class="empty">回收站暂无法律</div>
-      <table v-else>
+      <div v-else-if="loadError" class="empty error-state">
+        <p class="error">{{ loadError }}</p>
+        <button class="secondary small" type="button" @click="load(requestedPage)">重试</button>
+      </div>
+      <div v-else-if="loaded && result.items.length === 0" class="empty">回收站暂无法律</div>
+      <table v-else-if="loaded">
         <thead>
           <tr>
             <th>法律名称</th>
@@ -110,7 +116,7 @@ onMounted(() => { void load() })
             <td>{{ law.issuingAuthority }}</td>
             <td><span class="badge">{{ validityLabels[law.validityStatus] }}</span></td>
             <td>{{ law.articleCount }}</td>
-            <td>{{ formatDateTime(law.deletedAt) }}</td>
+            <td>{{ formatDateTimeToMinute(law.deletedAt) }}</td>
             <td>
               <div class="actions">
                 <button class="secondary small" type="button" @click="selectedLaw = law">查看</button>
@@ -128,7 +134,7 @@ onMounted(() => { void load() })
         </tbody>
       </table>
 
-      <div v-if="result.totalPages > 1" class="pagination">
+      <div v-if="loaded && result.totalPages > 1" class="pagination">
         <button
           class="secondary small"
           :disabled="result.page === 0 || loading"
@@ -159,8 +165,8 @@ onMounted(() => { void load() })
         <div><dt>效力状态</dt><dd>{{ validityLabels[selectedLaw.validityStatus] }}</dd></div>
         <div><dt>法条数量</dt><dd>{{ selectedLaw.articleCount }} 条</dd></div>
         <div><dt>修订状态</dt><dd>{{ selectedLaw.pendingRevision ? '待修订' : '无需修订' }}</dd></div>
-        <div><dt>删除时间</dt><dd>{{ formatDateTime(selectedLaw.deletedAt) }}</dd></div>
-        <div><dt>最后更新</dt><dd>{{ formatDateTime(selectedLaw.updatedAt) }}</dd></div>
+        <div><dt>删除时间</dt><dd>{{ formatDateTimeToMinute(selectedLaw.deletedAt) }}</dd></div>
+        <div><dt>最后更新</dt><dd>{{ formatDateTimeToMinute(selectedLaw.updatedAt) }}</dd></div>
       </dl>
     </section>
   </section>

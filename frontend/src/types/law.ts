@@ -1,31 +1,27 @@
 export type ValidityStatus = 'ACTIVE' | 'NOT_EFFECTIVE' | 'INVALID' | 'REPEALED'
 export type StructureNodeType = 'PART' | 'CHAPTER' | 'SECTION'
-
-export interface ApiError {
-  code: string
-  userMessage: string
-  locators: Array<{ field?: string; message?: string }>
-}
-
-export interface ApiResponse<T> {
-  success: boolean
-  data: T
-  error: ApiError | null
-  timestamp: string
-}
-
-export interface PageResponse<T> {
-  items: T[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-}
+export type LawDisplayStatus =
+  | 'UNANNOTATED'
+  | 'PENDING_ANNOTATION'
+  | 'ANNOTATING'
+  | 'PENDING_REVIEW'
+  | 'PARTIALLY_REJECTED'
+  | 'PENDING_REREVIEW'
+  | 'COMPLETED'
+  | 'PENDING_REVISION'
+  | 'REVISING'
 
 export interface LawBaseInfo {
   name: string
   issuingAuthority: string
   publicationDate: string
+  validityStatus: ValidityStatus
+}
+
+export interface LawImportPreviewBaseInfo {
+  name: string | null
+  issuingAuthority: string | null
+  publicationDate: string | null
   validityStatus: ValidityStatus | null
 }
 
@@ -55,7 +51,7 @@ export interface LawValidationIssue {
 }
 
 export interface LawImportPreview {
-  baseInfo: LawBaseInfo
+  baseInfo: LawImportPreviewBaseInfo
   structure: LawStructureInput[]
   articles: LawImportArticle[]
   warnings: string[]
@@ -68,11 +64,12 @@ export interface LawListItem {
   issuingAuthority: string
   publicationDate: string
   validityStatus: ValidityStatus
+  displayStatus: LawDisplayStatus
   articleCount: number
   updatedAt: string
 }
 
-export interface RecycleLawListItem extends LawListItem {
+export type RecycleLawListItem = Omit<LawListItem, 'displayStatus'> & {
   pendingRevision: boolean
   deletedAt: string
 }
@@ -104,6 +101,13 @@ export interface LawDetail {
   currentContentVersionId: string
   currentContentVersionSeq: number
   pendingRevision: boolean
+  displayStatus: LawDisplayStatus
   createdAt: string
   updatedAt: string
+}
+
+export interface LawImportConfirmPayload {
+  baseInfo: LawBaseInfo
+  structure: LawStructureInput[]
+  articles: LawImportArticle[]
 }

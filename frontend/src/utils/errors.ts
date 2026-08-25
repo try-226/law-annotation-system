@@ -53,3 +53,30 @@ export function safeErrorMessage(error: unknown, fallback = '操作失败，请�
   }
   return fallback
 }
+
+export function locatorValidationMessage(
+  error: unknown,
+  fallback = '请求失败，请检查输入后重试',
+): string {
+  const failure = parseFailure(error)
+  if (failure.network || (failure.status !== undefined && failure.status >= 500)) {
+    return safeErrorMessage(error, fallback)
+  }
+  const locatorMessages = failure.locators
+    .map(formatErrorLocator)
+    .filter((message) => message.length > 0)
+  if (locatorMessages.length > 0) {
+    return [...new Set(locatorMessages)].join('；')
+  }
+  if (failure.userMessage) {
+    return failure.userMessage
+  }
+  return safeErrorMessage(error, fallback)
+}
+
+export function formatErrorLocator(locator: ErrorLocator): string {
+  const message = locator.message.trim()
+  const path = locator.path.trim()
+  if (!message) return ''
+  return path ? `${path}：${message}` : message
+}
