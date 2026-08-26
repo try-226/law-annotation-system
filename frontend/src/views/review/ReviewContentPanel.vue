@@ -4,7 +4,12 @@ import { computed } from 'vue'
 import type { ValidityStatus } from '../../types/law'
 import type { TaskArticleSnapshot } from '../../types/task'
 import type { ReviewDetail, ReviewFieldRow, ReviewItem, ReviewTarget } from '../../types/review'
-import { buildReviewFieldRows, buildReviewItemMap, reviewTargetKey } from './reviewState'
+import {
+  buildReviewFieldRows,
+  buildReviewItemMap,
+  reviewTargetKey,
+  shouldCompareReviewTarget,
+} from './reviewState'
 
 const props = defineProps<{
   review: ReviewDetail
@@ -14,7 +19,7 @@ const props = defineProps<{
 }>()
 
 const item = computed<ReviewItem | null>(() => buildReviewItemMap(props.review.items).get(reviewTargetKey(props.target)) ?? null)
-const comparisonMode = computed(() => props.review.roundType === 'REREVIEW')
+const comparisonMode = computed(() => shouldCompareReviewTarget(props.review, props.target))
 
 const overallRows = computed<ReviewFieldRow[]>(() => buildReviewFieldRows(
   'overall',

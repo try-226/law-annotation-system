@@ -1,17 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { TaskArticleSnapshot, TaskStructureNodeSnapshot } from '../../types/task'
 import type { ReviewDetail, ReviewItem, ReviewTarget } from '../../types/review'
 import {
+  buildReviewArticleProgress,
+  buildReviewDirectoryRows,
   buildReviewItemMap,
   reviewTargetKey,
   searchReviewArticles,
 } from './reviewState'
-
-type TreeRow =
-  | { kind: 'node'; key: string; node: TaskStructureNodeSnapshot; depth: number }
-  | { kind: 'article'; key: string; article: TaskArticleSnapshot; depth: number }
 
 const props = defineProps<{
   review: ReviewDetail
@@ -29,43 +26,14 @@ const emit = defineEmits<{
 }>()
 
 const itemMap = computed(() => buildReviewItemMap(props.review.items))
+const overallItem = computed(() => itemFor({ kind: 'overall' }))
+const articleProgress = computed(() => buildReviewArticleProgress(props.review.items))
 const searchResults = computed(() => searchReviewArticles(
   props.review.contentVersionSnapshot.articles,
   props.appliedSearch,
 ))
 
-const rows = computed<TreeRow[]>(() => {
-  const nodes = props.review.structureSnapshot
-  const articleById = new Map(props.review.contentVersionSnapshot.articles.map((article) => [article.articleId, article]))
-  const children = new Map<string | null, TaskStructureNodeSnapshot[]>()
-  for (const node of nodes) {
-    const list = children.get(node.parentNodeId) ?? []
-    list.push(node)
-    children.set(node.parentNodeId, list)
-  }
-  const result: TreeRow[] = []
-  const included = new Set<string>()
-  const sortedNodes = (items: TaskStructureNodeSnapshot[]) => [...items].sort((left, right) => left.order - right.order)
-  const visit = (node: TaskStructureNodeSnapshot, depth: number) => {
-    result.push({ kind: 'node', key: `node:${node.nodeId}`, node, depth })
-    const nodeArticles = node.articleIds
-      .map((articleId) => articleById.get(articleId))
-      .filter((article): article is TaskArticleSnapshot => Boolean(article))
-      .sort((left, right) => left.order - right.order)
-    for (const article of nodeArticles) {
-      const articleId = article.articleId
-      if (included.has(articleId)) continue
-      included.add(articleId)
-      result.push({ kind: 'article', key: `article:${articleId}`, article, depth: depth + 1 })
-    }
-    for (const child of sortedNodes(children.get(node.nodeId) ?? [])) visit(child, depth + 1)
-  }
-  for (const root of sortedNodes(children.get(null) ?? [])) visit(root, 0)
-  for (const article of [...props.review.contentVersionSnapshot.articles].sort((left, right) => left.order - right.order)) {
-    if (!included.has(article.articleId)) result.push({ kind: 'article', key: `article:${article.articleId}`, article, depth: 0 })
-  }
-  return result
-})
+const rows = computed(() => buildReviewDirectoryRows(props.review))
 
 function itemFor(target: ReviewTarget): ReviewItem | undefined {
   return itemMap.value.get(reviewTargetKey(target))
@@ -73,8 +41,8 @@ function itemFor(target: ReviewTarget): ReviewItem | undefined {
 
 function stateLabel(item: ReviewItem | undefined): string {
   if (!item) return props.review.roundType === 'REREVIEW' ? '非本轮范围' : '未纳入'
-  if (item.state === 'CHECKED') return '无问题'
-  if (item.state === 'NEEDS_CHANGE') return '有问题'
+  if (item.state === 'CHECKED') return '已核查'
+  if (item.state === 'NEEDS_CHANGE') return '待修改'
   return '未审核'
 }
 
@@ -158,13 +126,18 @@ function selectedTarget(target: ReviewTarget): boolean {
     </div>
 
     <footer class="review-progress">
-      <strong>审核进度 {{ review.progress.reviewed }} / {{ review.progress.total }}</strong>
-      <div class="review-progress-track"><span :style="{ width: `${review.progress.total ? (review.progress.reviewed / review.progress.total) * 100 : 0}%` }" /></div>
+      <div class="review-overall-progress">
+        <strong>整体信息</strong>
+        <em :class="stateClass(overallItem)">{{ stateLabel(overallItem) }}</em>
+      </div>
+      <strong>法条审核进度 {{ articleProgress.processed }} / {{ articleProgress.total }}</strong>
+      <div class="review-progress-track"><span :style="{ width: `${articleProgress.total ? (articleProgress.processed / articleProgress.total) * 100 : 0}%` }" /></div>
       <dl>
-        <div><dt>未审核</dt><dd>{{ review.progress.unreviewed }}</dd></div>
-        <div><dt>有问题</dt><dd>{{ review.progress.needsChange }}</dd></div>
+        <div><dt>已核查</dt><dd>{{ articleProgress.checked }}</dd></div>
+        <div><dt>待修改</dt><dd>{{ articleProgress.needsChange }}</dd></div>
+        <div><dt>未审核</dt><dd>{{ articleProgress.unreviewed }}</dd></div>
       </dl>
-      <small>进度来自服务器当前审核轮次</small>
+      <small>仅统计服务器本轮 scope 内的法条；完成条件仍以服务器总进度为准</small>
     </footer>
   </aside>
 </template>

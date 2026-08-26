@@ -3,16 +3,18 @@ import test from 'node:test'
 
 import {
   buildReviewFieldRows,
+  buildReviewArticleProgress,
   buildReviewTargetOrder,
   canCompleteReview,
+  canResumeReviewCompletion,
   findNextReviewTarget,
-  findNextUnreviewedTarget,
   normalizeIssueReason,
   reviewFailureDecision,
   reviewTargetCapabilities,
   reviewTargetKey,
   searchReviewArticles,
   selectInitialReviewTarget,
+  shouldCompareReviewTarget,
   validateIssueReason,
 } from '../src/views/review/reviewState.ts'
 
@@ -63,11 +65,27 @@ function detail(overrides = {}) {
   }
 }
 
-test('审核目录始终按整体信息和法条 order 排序', () => {
+test('无结构目录按整体信息和法条 order 排序', () => {
   assert.deepEqual(buildReviewTargetOrder(detail()), [
     { kind: 'overall' },
     { kind: 'article', articleId: 'a-1' },
     { kind: 'article', articleId: 'a-2' },
+    { kind: 'article', articleId: 'a-3' },
+  ])
+})
+
+test('审核导航顺序与结构目录 DFS 保持一致并把未挂载法条放在末尾', () => {
+  const review = detail({
+    structureSnapshot: [
+      { nodeId: 'root', type: 'CHAPTER', title: '第一章', parentNodeId: null, order: 1, articleIds: ['a-2'] },
+      { nodeId: 'child', type: 'SECTION', title: '第一节', parentNodeId: 'root', order: 1, articleIds: ['a-1'] },
+    ],
+  })
+
+  assert.deepEqual(buildReviewTargetOrder(review), [
+    { kind: 'overall' },
+    { kind: 'article', articleId: 'a-2' },
+    { kind: 'article', articleId: 'a-1' },
     { kind: 'article', articleId: 'a-3' },
   ])
 })
@@ -89,39 +107,21 @@ test('完成轮次无未审核项时优先定位第一项问题', () => {
   assert.deepEqual(selectInitialReviewTarget(review), { kind: 'article', articleId: 'a-1' })
 })
 
-test('下一未审核项从当前项之后查找并最多回绕一次', () => {
-  const review = detail({
-    items: [
-      item({ kind: 'overall' }, 'UNREVIEWED'),
-      item({ kind: 'article', articleId: 'a-1' }, 'CHECKED'),
-      item({ kind: 'article', articleId: 'a-2' }, 'CHECKED'),
-      item({ kind: 'article', articleId: 'a-3' }, 'UNREVIEWED'),
-    ],
-  })
-  assert.deepEqual(findNextUnreviewedTarget(review, { kind: 'article', articleId: 'a-2' }), { kind: 'article', articleId: 'a-3' })
-  assert.deepEqual(findNextUnreviewedTarget(review, { kind: 'article', articleId: 'a-3' }), { kind: 'overall' })
-})
-
-test('跳过唯一未审核项时不返回当前项形成循环', () => {
-  const review = detail({
-    items: [
-      item({ kind: 'overall' }, 'CHECKED'),
-      item({ kind: 'article', articleId: 'a-1' }, 'CHECKED'),
-      item({ kind: 'article', articleId: 'a-2' }, 'UNREVIEWED'),
-      item({ kind: 'article', articleId: 'a-3' }, 'CHECKED'),
-    ],
-  })
-  assert.equal(findNextUnreviewedTarget(review, { kind: 'article', articleId: 'a-2' }), null)
-})
-
-test('纯下一项按目录顺序导航，不跳过已处理或非 scope 项', () => {
+test('下一项严格按目录顺序导航，不跳过已处理或非 scope 项且不改变状态', () => {
   const review = detail({
     roundType: 'REREVIEW',
-    items: [item({ kind: 'overall' }, 'CHECKED')],
+    items: [
+      item({ kind: 'overall' }, 'CHECKED'),
+      item({ kind: 'article', articleId: 'a-1' }, 'UNREVIEWED'),
+      item({ kind: 'article', articleId: 'a-2' }, 'NEEDS_CHANGE', '仍需修改'),
+    ],
   })
+  const statesBefore = review.items.map((current) => current.state)
   assert.deepEqual(findNextReviewTarget(review, { kind: 'overall' }), { kind: 'article', articleId: 'a-1' })
   assert.deepEqual(findNextReviewTarget(review, { kind: 'article', articleId: 'a-1' }), { kind: 'article', articleId: 'a-2' })
+  assert.deepEqual(findNextReviewTarget(review, { kind: 'article', articleId: 'a-2' }), { kind: 'article', articleId: 'a-3' })
   assert.equal(findNextReviewTarget(review, { kind: 'article', articleId: 'a-3' }), null)
+  assert.deepEqual(review.items.map((current) => current.state), statesBefore)
 })
 
 test('复审非 scope 项只能由当前 reviewer 新增问题', () => {
@@ -140,19 +140,29 @@ test('只读或已完成轮次不能产生任何写操作', () => {
   assert.equal(reviewTargetCapabilities(detail({ completedAt: '2026-08-26T01:00:00Z' }), target).canCheck, false)
 })
 
-test('已核查项不允许下一项并核查覆盖结论', () => {
-  assert.equal(reviewTargetCapabilities(detail(), { kind: 'overall' }).canCheckAndNext, false)
-  assert.equal(reviewTargetCapabilities(detail(), { kind: 'article', articleId: 'a-1' }).canCheckAndNext, true)
+test('标记无问题允许未审核和待修改项，但不重复核查已核查项', () => {
+  const unreviewed = reviewTargetCapabilities(detail(), { kind: 'article', articleId: 'a-1' })
+  const checked = reviewTargetCapabilities(detail(), { kind: 'overall' })
+  const needsChange = reviewTargetCapabilities(detail({
+    items: [item({ kind: 'article', articleId: 'a-1' }, 'NEEDS_CHANGE', '仍需修改')],
+  }), { kind: 'article', articleId: 'a-1' })
+
+  assert.equal(unreviewed.canCheck, true)
+  assert.equal(needsChange.canCheck, true)
+  assert.equal(checked.canCheck, false)
 })
 
-test('已有问题项不能被核查按钮覆盖，只能修改问题或纯导航', () => {
-  const review = detail({
+test('下一项并核查只允许未审核项，不覆盖待修改或已核查结论', () => {
+  const unreviewed = reviewTargetCapabilities(detail(), { kind: 'article', articleId: 'a-1' })
+  const checked = reviewTargetCapabilities(detail(), { kind: 'overall' })
+  const needsChange = reviewTargetCapabilities(detail({
     items: [item({ kind: 'article', articleId: 'a-1' }, 'NEEDS_CHANGE', '仍需修改')],
-  })
-  const capability = reviewTargetCapabilities(review, { kind: 'article', articleId: 'a-1' })
-  assert.equal(capability.canCheck, false)
-  assert.equal(capability.canCheckAndNext, false)
-  assert.equal(capability.canIssue, true)
+  }), { kind: 'article', articleId: 'a-1' })
+
+  assert.equal(unreviewed.canCheckAndNext, true)
+  assert.equal(needsChange.canCheckAndNext, false)
+  assert.equal(checked.canCheckAndNext, false)
+  assert.equal(needsChange.canIssue, true)
 })
 
 test('完成操作同时受可写、完成中、已完成和未审核数保护', () => {
@@ -162,6 +172,53 @@ test('完成操作同时受可写、完成中、已完成和未审核数保护',
   assert.equal(canCompleteReview({ ...ready, completionStartedAt: '2026-08-26T01:00:00Z' }), false)
   assert.equal(canCompleteReview({ ...ready, completedAt: '2026-08-26T01:00:00Z' }), false)
   assert.equal(canCompleteReview(detail()), false)
+})
+
+test('完成流程启动后仅原 reviewer 可以恢复 complete 且 item 写操作保持禁用', () => {
+  const target = { kind: 'article', articleId: 'a-1' }
+  const completing = detail({
+    writable: false,
+    completionStartedAt: '2026-08-26T01:00:00Z',
+    progress: { total: 4, reviewed: 4, unreviewed: 0, needsChange: 1 },
+  })
+
+  assert.equal(canResumeReviewCompletion(completing, 'admin-1'), true)
+  assert.equal(canResumeReviewCompletion(completing, 'admin-2'), false)
+  assert.equal(reviewTargetCapabilities(completing, target).canCheck, false)
+  assert.equal(reviewTargetCapabilities(completing, target).canIssue, false)
+  assert.equal(canResumeReviewCompletion({ ...completing, completedAt: '2026-08-26T02:00:00Z' }, 'admin-1'), false)
+  assert.equal(canResumeReviewCompletion(detail(), 'admin-1'), false)
+})
+
+test('法条展示进度排除整体信息并区分三种服务端 item 状态', () => {
+  const review = detail({
+    roundType: 'REREVIEW',
+    items: [
+      item({ kind: 'overall' }, 'CHECKED'),
+      item({ kind: 'article', articleId: 'a-1' }, 'CHECKED'),
+      item({ kind: 'article', articleId: 'a-2' }, 'NEEDS_CHANGE', '仍需修改'),
+      item({ kind: 'article', articleId: 'a-3' }, 'UNREVIEWED'),
+    ],
+  })
+
+  assert.deepEqual(buildReviewArticleProgress(review.items), {
+    total: 3,
+    processed: 2,
+    checked: 1,
+    needsChange: 1,
+    unreviewed: 1,
+  })
+})
+
+test('复审只对本轮 scope 项显示 before after 对照', () => {
+  const review = detail({
+    roundType: 'REREVIEW',
+    items: [item({ kind: 'article', articleId: 'a-1' }, 'UNREVIEWED')],
+  })
+
+  assert.equal(shouldCompareReviewTarget(review, { kind: 'article', articleId: 'a-1' }), true)
+  assert.equal(shouldCompareReviewTarget(review, { kind: 'article', articleId: 'a-2' }), false)
+  assert.equal(shouldCompareReviewTarget(detail(), { kind: 'article', articleId: 'a-1' }), false)
 })
 
 test('问题原因按 Unicode 码点校验 trim 后 1 至 500 字符', () => {

@@ -5,7 +5,7 @@ import {
   type ArticleDraftValues,
   type OverallDraftValues,
 } from '../../types/annotation'
-import type { TaskArticleSnapshot } from '../../types/task'
+import type { TaskArticleSnapshot, TaskStructureNodeSnapshot } from '../../types/task'
 import type {
   ReviewDetail,
   ReviewFieldRow,
@@ -23,6 +23,10 @@ const ARTICLE_FIELDS: readonly (keyof ArticleDraftValues)[] = [
   'itemType', 'keywords', 'subjects', 'legalLiability', 'annotationNote',
 ]
 
+export type ReviewDirectoryRow =
+  | { kind: 'node'; key: string; node: TaskStructureNodeSnapshot; depth: number }
+  | { kind: 'article'; key: string; article: TaskArticleSnapshot; depth: number }
+
 export function reviewTargetKey(target: ReviewTarget): string {
   return target.kind === 'overall' ? 'overall' : `article:${target.articleId}`
 }
@@ -37,19 +41,53 @@ export function buildReviewItemMap(items: ReviewItem[]): Map<string, ReviewItem>
   return new Map(items.map((item) => [reviewTargetKey(locatorTarget(item.locator)), item]))
 }
 
+export function buildReviewDirectoryRows(
+  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'structureSnapshot'>,
+): ReviewDirectoryRow[] {
+  const nodes = review.structureSnapshot
+  const articleById = new Map(review.contentVersionSnapshot.articles.map((article) => [article.articleId, article]))
+  const children = new Map<string | null, TaskStructureNodeSnapshot[]>()
+  for (const node of nodes) {
+    const list = children.get(node.parentNodeId) ?? []
+    list.push(node)
+    children.set(node.parentNodeId, list)
+  }
+  const result: ReviewDirectoryRow[] = []
+  const included = new Set<string>()
+  const sortedNodes = (items: TaskStructureNodeSnapshot[]) => [...items].sort((left, right) => left.order - right.order)
+  const visit = (node: TaskStructureNodeSnapshot, depth: number) => {
+    result.push({ kind: 'node', key: `node:${node.nodeId}`, node, depth })
+    const nodeArticles = node.articleIds
+      .map((articleId) => articleById.get(articleId))
+      .filter((article): article is TaskArticleSnapshot => Boolean(article))
+      .sort((left, right) => left.order - right.order)
+    for (const article of nodeArticles) {
+      if (included.has(article.articleId)) continue
+      included.add(article.articleId)
+      result.push({ kind: 'article', key: `article:${article.articleId}`, article, depth: depth + 1 })
+    }
+    for (const child of sortedNodes(children.get(node.nodeId) ?? [])) visit(child, depth + 1)
+  }
+  for (const root of sortedNodes(children.get(null) ?? [])) visit(root, 0)
+  for (const article of [...review.contentVersionSnapshot.articles].sort((left, right) => left.order - right.order)) {
+    if (!included.has(article.articleId)) result.push({ kind: 'article', key: `article:${article.articleId}`, article, depth: 0 })
+  }
+  return result
+}
+
 export function buildReviewTargetOrder(
-  review: Pick<ReviewDetail, 'contentVersionSnapshot'>,
+  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'structureSnapshot'>,
 ): ReviewTarget[] {
   return [
     { kind: 'overall' },
-    ...[...review.contentVersionSnapshot.articles]
-      .sort((left, right) => left.order - right.order)
-      .map((article) => ({ kind: 'article' as const, articleId: article.articleId })),
+    ...buildReviewDirectoryRows(review)
+      .filter((row) => row.kind === 'article')
+      .map((row) => ({ kind: 'article' as const, articleId: row.article.articleId })),
   ]
 }
 
 export function selectInitialReviewTarget(
-  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'items'>,
+  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'structureSnapshot' | 'items'>,
 ): ReviewTarget {
   const order = buildReviewTargetOrder(review)
   const items = buildReviewItemMap(review.items)
@@ -60,24 +98,8 @@ export function selectInitialReviewTarget(
     ?? { kind: 'overall' }
 }
 
-export function findNextUnreviewedTarget(
-  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'items'>,
-  current: ReviewTarget,
-): ReviewTarget | null {
-  const order = buildReviewTargetOrder(review)
-  if (order.length < 2) return null
-  const items = buildReviewItemMap(review.items)
-  const currentIndex = order.findIndex((target) => reviewTargetKey(target) === reviewTargetKey(current))
-  const start = currentIndex < 0 ? -1 : currentIndex
-  for (let offset = 1; offset < order.length; offset += 1) {
-    const target = order[(start + offset + order.length) % order.length]
-    if (items.get(reviewTargetKey(target))?.state === 'UNREVIEWED') return target
-  }
-  return null
-}
-
 export function findNextReviewTarget(
-  review: Pick<ReviewDetail, 'contentVersionSnapshot'>,
+  review: Pick<ReviewDetail, 'contentVersionSnapshot' | 'structureSnapshot'>,
   current: ReviewTarget,
 ): ReviewTarget | null {
   const order = buildReviewTargetOrder(review)
@@ -92,7 +114,7 @@ export function reviewTargetCapabilities(
   const item = buildReviewItemMap(review.items).get(reviewTargetKey(target))
   const active = review.writable && !review.completionStartedAt && !review.completedAt
   const inScope = Boolean(item)
-  const canCheck = active && inScope && item?.state === 'UNREVIEWED'
+  const canCheck = active && inScope && item?.state !== 'CHECKED'
   return {
     inScope,
     state: item?.state ?? null,
@@ -109,6 +131,53 @@ export function canCompleteReview(
     && !review.completionStartedAt
     && !review.completedAt
     && review.progress.unreviewed === 0
+}
+
+export function canResumeReviewCompletion(
+  review: Pick<ReviewDetail, 'reviewerId' | 'completionStartedAt' | 'completedAt'>,
+  currentUserId: string | null | undefined,
+): boolean {
+  return Boolean(
+    currentUserId
+    && review.reviewerId === currentUserId
+    && review.completionStartedAt
+    && !review.completedAt,
+  )
+}
+
+export interface ReviewArticleProgress {
+  total: number
+  processed: number
+  checked: number
+  needsChange: number
+  unreviewed: number
+}
+
+export function buildReviewArticleProgress(items: ReviewItem[]): ReviewArticleProgress {
+  const progress: ReviewArticleProgress = {
+    total: 0,
+    processed: 0,
+    checked: 0,
+    needsChange: 0,
+    unreviewed: 0,
+  }
+  for (const item of items) {
+    if (item.locator.type !== 'ARTICLE') continue
+    progress.total += 1
+    if (item.state === 'CHECKED') progress.checked += 1
+    else if (item.state === 'NEEDS_CHANGE') progress.needsChange += 1
+    else progress.unreviewed += 1
+  }
+  progress.processed = progress.checked + progress.needsChange
+  return progress
+}
+
+export function shouldCompareReviewTarget(
+  review: Pick<ReviewDetail, 'roundType' | 'items'>,
+  target: ReviewTarget,
+): boolean {
+  return review.roundType === 'REREVIEW'
+    && buildReviewItemMap(review.items).has(reviewTargetKey(target))
 }
 
 export function validateIssueReason(reason: string): string | null {
