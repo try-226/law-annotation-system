@@ -99,6 +99,12 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: ['ADMIN'], title: '任务详情' },
       },
       {
+        path: 'tasks/:taskId/review',
+        name: 'review-workbench',
+        component: () => import('../views/review/ReviewWorkbenchView.vue'),
+        meta: { roles: ['ADMIN'], title: '审核工作台' },
+      },
+      {
         path: 'my-tasks',
         name: 'my-tasks',
         component: () => import('../views/task/MyTasksView.vue'),

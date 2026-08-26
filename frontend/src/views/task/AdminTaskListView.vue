@@ -179,7 +179,15 @@ onMounted(() => {
               <td><strong>{{ task.taskName }}</strong><small v-if="task.remark" class="secondary-copy" :title="task.remark">有任务备注</small></td>
               <td>{{ task.lawName }}</td><td>{{ TASK_TYPE_LABELS[task.taskType] }}</td><td>{{ task.annotatorName }}</td>
               <td><TaskStatusBadge :state="task.taskState" /></td><td>{{ formatTaskDateTime(task.createdAt) }}</td>
-              <td class="actions"><RouterLink class="button button--text" :to="{ name: 'admin-task-detail', params: { taskId: task.taskId } }">详情</RouterLink><button v-if="isCancelableTaskState(task.taskState)" class="button button--text button--text-danger" type="button" @click="openCancel(task)">取消</button></td>
+              <td class="actions">
+                <RouterLink class="button button--text" :to="{ name: 'admin-task-detail', params: { taskId: task.taskId } }">详情</RouterLink>
+                <RouterLink
+                  v-if="task.taskState === 'PENDING_REVIEW' || task.taskState === 'PENDING_REREVIEW'"
+                  class="button button--text"
+                  :to="{ name: 'review-workbench', params: { taskId: task.taskId } }"
+                >{{ task.taskState === 'PENDING_REREVIEW' ? '复审' : '审核' }}</RouterLink>
+                <button v-if="isCancelableTaskState(task.taskState)" class="button button--text button--text-danger" type="button" @click="openCancel(task)">取消</button>
+              </td>
             </tr>
           </tbody>
         </table>
