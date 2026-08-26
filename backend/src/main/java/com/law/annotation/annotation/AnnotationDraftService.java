@@ -23,6 +23,10 @@ import com.law.annotation.review.ReviewItemLocator;
 import com.law.annotation.review.ReviewRoundDocument;
 import com.law.annotation.review.ReviewScopeType;
 import com.law.annotation.review.ReviewService;
+import com.law.annotation.revision.RevisionErrorCodes;
+import com.law.annotation.revision.RevisionScope;
+import com.law.annotation.version.AnnotationVersionDocument;
+import com.law.annotation.version.AnnotationVersionRepository;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,6 +53,7 @@ public class AnnotationDraftService {
     private final TaskService taskService;
     private final MongoTemplate mongoTemplate;
     private final ReviewService reviewService;
+    private final AnnotationVersionRepository annotationVersionRepository;
 
     @Autowired
     public AnnotationDraftService(
@@ -57,13 +62,15 @@ public class AnnotationDraftService {
             TaskSubmissionRepository submissionRepository,
             TaskService taskService,
             MongoTemplate mongoTemplate,
-            ReviewService reviewService) {
+            ReviewService reviewService,
+            AnnotationVersionRepository annotationVersionRepository) {
         this.taskRepository = taskRepository;
         this.draftRepository = draftRepository;
         this.submissionRepository = submissionRepository;
         this.taskService = taskService;
         this.mongoTemplate = mongoTemplate;
         this.reviewService = reviewService;
+        this.annotationVersionRepository = annotationVersionRepository;
     }
 
     public AnnotationDraftService(
@@ -73,7 +80,18 @@ public class AnnotationDraftService {
             TaskService taskService,
             MongoTemplate mongoTemplate) {
         this(taskRepository, draftRepository, submissionRepository,
-                taskService, mongoTemplate, null);
+                taskService, mongoTemplate, null, null);
+    }
+
+    public AnnotationDraftService(
+            TaskRepository taskRepository,
+            TaskDraftRepository draftRepository,
+            TaskSubmissionRepository submissionRepository,
+            TaskService taskService,
+            MongoTemplate mongoTemplate,
+            ReviewService reviewService) {
+        this(taskRepository, draftRepository, submissionRepository,
+                taskService, mongoTemplate, reviewService, null);
     }
 
     public TaskDraftResponse getDraft(String taskId, UserPrincipal currentUser) {
@@ -167,9 +185,6 @@ public class AnnotationDraftService {
 
     public SubmitReviewResponse submitReview(String taskId, UserPrincipal currentUser) {
         TaskDocument task = requireOwnerTask(taskId, currentUser);
-        if (task.getTaskType() != TaskType.ORDINARY) {
-            throw notEditable();
-        }
         if (task.getTaskState() == TaskState.PENDING_REVIEW) {
             throw alreadySubmitted();
         }
@@ -178,7 +193,9 @@ public class AnnotationDraftService {
         }
 
         TaskDraftDocument draft = draftRepository.findById(task.getTaskId()).orElse(null);
-        List<ErrorLocator> missing = AnnotationDraftRules.missingRequired(task, draft);
+        List<ErrorLocator> missing = task.getTaskType() == TaskType.REVISION
+                ? AnnotationDraftRules.missingRequiredForRevision(task, draft)
+                : AnnotationDraftRules.missingRequired(task, draft);
         if (!missing.isEmpty()) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
@@ -210,8 +227,7 @@ public class AnnotationDraftService {
 
     public SubmitReviewResponse submitRereview(String taskId, UserPrincipal currentUser) {
         TaskDocument task = requireOwnerTask(taskId, currentUser);
-        if (task.getTaskType() != TaskType.ORDINARY
-                || task.getTaskState() != TaskState.PARTIALLY_REJECTED
+        if (task.getTaskState() != TaskState.PARTIALLY_REJECTED
                 || reviewService == null) {
             throw notEditable();
         }
@@ -278,13 +294,25 @@ public class AnnotationDraftService {
             TaskDraftDocument draft,
             String submittedBy) {
         Instant submittedAt = Instant.now();
+        OverallDraftValues overallSnapshot;
+        Map<String, ArticleDraftValues> articleSnapshots;
+        if (task.getTaskType() == TaskType.REVISION) {
+            AnnotationVersionDocument base = requireRevisionBase(task);
+            overallSnapshot = task.getRevisionScope().overall()
+                    ? draft.getOverallDraft()
+                    : base.getOverallResult();
+            articleSnapshots = revisionArticleSnapshots(task, draft, base);
+        } else {
+            overallSnapshot = draft.getOverallDraft();
+            articleSnapshots = orderedArticleSnapshots(task, draft);
+        }
         TaskSubmissionDocument candidate = new TaskSubmissionDocument(
                 UUID.randomUUID().toString(),
                 task.getTaskId(),
                 INITIAL_SUBMISSION_NO,
-                draft.getRevision(),
-                draft.getOverallDraft(),
-                orderedArticleSnapshots(task, draft),
+                draft == null ? 0 : draft.getRevision(),
+                overallSnapshot,
+                articleSnapshots,
                 submittedBy,
                 submittedAt);
         try {
@@ -312,13 +340,32 @@ public class AnnotationDraftService {
                 .findTopByTaskIdOrderBySubmissionNoDesc(task.getTaskId())
                 .map(submission -> submission.getSubmissionNo() + 1)
                 .orElse(2);
+        OverallDraftValues overallSnapshot;
+        Map<String, ArticleDraftValues> articleSnapshots;
+        if (task.getTaskType() == TaskType.REVISION) {
+            TaskSubmissionDocument baseline = submissionRepository
+                    .findById(rejectedRound.getSourceSubmissionId())
+                    .orElseThrow(() -> new ApiException(
+                            HttpStatus.CONFLICT,
+                            AnnotationErrorCodes.TASK_NOT_EDITABLE,
+                            "上一轮冻结提交不存在"));
+            overallSnapshot = modifiedScope.stream()
+                    .anyMatch(locator -> locator.type() == ReviewScopeType.OVERALL)
+                    ? draft.getOverallDraft()
+                    : baseline.getOverallSnapshot();
+            articleSnapshots = revisionRereviewArticleSnapshots(
+                    task, draft, baseline, modifiedScope);
+        } else {
+            overallSnapshot = draft.getOverallDraft();
+            articleSnapshots = orderedArticleSnapshots(task, draft);
+        }
         TaskSubmissionDocument candidate = new TaskSubmissionDocument(
                 UUID.randomUUID().toString(),
                 task.getTaskId(),
                 nextSubmissionNo,
                 draft.getRevision(),
-                draft.getOverallDraft(),
-                orderedArticleSnapshots(task, draft),
+                overallSnapshot,
+                articleSnapshots,
                 rejectedRound.getReviewRoundId(),
                 modifiedScope,
                 submittedBy,
@@ -421,14 +468,31 @@ public class AnnotationDraftService {
             TaskDocument task,
             TaskDraftDocument draft,
             UserPrincipal currentUser) {
-        Map<String, ArticleDraftValues> articleDrafts = draft == null
+        Map<String, ArticleDraftValues> storedArticleDrafts = draft == null
                 ? Map.of()
                 : draft.getPerArticleDrafts();
+        OverallDraftValues displayedOverall = draft == null ? null : draft.getOverallDraft();
+        Map<String, ArticleDraftValues> articleDrafts = storedArticleDrafts;
+        if (task.getTaskType() == TaskType.REVISION) {
+            AnnotationVersionDocument base = requireRevisionBase(task);
+            if (displayedOverall == null) {
+                displayedOverall = base.getOverallResult();
+            }
+            Map<String, ArticleDraftValues> merged = new LinkedHashMap<>();
+            task.getContentVersionSnapshot().articles().forEach(article -> {
+                ArticleDraftValues value = storedArticleDrafts.containsKey(article.articleId())
+                        ? storedArticleDrafts.get(article.articleId())
+                        : base.getArticleResults().get(article.articleId());
+                if (value != null) {
+                    merged.put(article.articleId(), value);
+                }
+            });
+            articleDrafts = Map.copyOf(merged);
+        }
         AnnotationProgressResponse progress = AnnotationDraftRules.progress(task, draft);
         boolean ownerCanEdit = currentUser != null
                 && currentUser.role() == Role.ANNOTATOR
                 && currentUser.id().equals(task.getAnnotatorId())
-                && task.getTaskType() == TaskType.ORDINARY
                 && (task.getTaskState() == TaskState.ANNOTATING
                         || task.getTaskState() == TaskState.PARTIALLY_REJECTED);
         ReviewRoundDocument rejectedRound = task.getTaskState() == TaskState.PARTIALLY_REJECTED
@@ -436,15 +500,19 @@ public class AnnotationDraftService {
                 ? reviewService.requireRejectedRoundForEditing(task)
                 : null;
         boolean overallEditable = ownerCanEdit && (rejectedRound == null
-                || rejectedRound.getIssues().containsKey(
+                ? task.getTaskType() == TaskType.ORDINARY
+                        || task.getRevisionScope().overall()
+                : rejectedRound.getIssues().containsKey(
                         ReviewItemLocator.overall().storageKey()));
         List<String> editableArticleIds;
         if (!ownerCanEdit) {
             editableArticleIds = List.of();
         } else if (rejectedRound == null) {
-            editableArticleIds = task.getContentVersionSnapshot().articles().stream()
-                    .map(article -> article.articleId())
-                    .toList();
+            editableArticleIds = task.getTaskType() == TaskType.REVISION
+                    ? task.getRevisionScope().articleIds()
+                    : task.getContentVersionSnapshot().articles().stream()
+                            .map(article -> article.articleId())
+                            .toList();
         } else {
             editableArticleIds = rejectedRound.getRequiredScope().stream()
                     .filter(locator -> locator.type() == ReviewScopeType.ARTICLE)
@@ -466,7 +534,7 @@ public class AnnotationDraftService {
         return new TaskDraftResponse(
                 task.getTaskId(),
                 task.getTaskState(),
-                draft == null ? null : draft.getOverallDraft(),
+                displayedOverall,
                 articleDrafts,
                 new EditableScopeResponse(overallEditable, editableArticleIds),
                 progress,
@@ -501,9 +569,11 @@ public class AnnotationDraftService {
 
     private TaskDocument requireEditableOwnerTask(String taskId, UserPrincipal currentUser) {
         TaskDocument task = requireOwnerTask(taskId, currentUser);
-        if (task.getTaskType() != TaskType.ORDINARY
-                || (task.getTaskState() != TaskState.ANNOTATING
+        if ((task.getTaskState() != TaskState.ANNOTATING
                         && task.getTaskState() != TaskState.PARTIALLY_REJECTED)) {
+            throw notEditable();
+        }
+        if (task.getTaskType() == TaskType.REVISION && task.getRevisionScope() == null) {
             throw notEditable();
         }
         return task;
@@ -513,6 +583,18 @@ public class AnnotationDraftService {
             TaskDocument task,
             ReviewItemLocator locator) {
         if (task.getTaskState() == TaskState.ANNOTATING) {
+            if (task.getTaskType() == TaskType.REVISION) {
+                RevisionScope scope = task.getRevisionScope();
+                boolean allowed = locator.type() == ReviewScopeType.OVERALL
+                        ? scope.overall()
+                        : scope.includesArticle(locator.articleId());
+                if (!allowed) {
+                    throw new ApiException(
+                            HttpStatus.CONFLICT,
+                            RevisionErrorCodes.WRITE_OUTSIDE_SCOPE,
+                            "该标注项不在修订任务可编辑范围内");
+                }
+            }
             return null;
         }
         if (reviewService == null) {
@@ -539,6 +621,70 @@ public class AnnotationDraftService {
     private TaskDraftDocument requireDraft(String taskId) {
         return draftRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalStateException("草稿写入后未找到"));
+    }
+
+    private AnnotationVersionDocument requireRevisionBase(TaskDocument task) {
+        if (annotationVersionRepository == null
+                || task.getBaseAnnotationVersionId() == null) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    RevisionErrorCodes.BASE_ANNOTATION_INVALID,
+                    "修订任务缺少基础正式标注版本");
+        }
+        return annotationVersionRepository.findById(task.getBaseAnnotationVersionId())
+                .filter(version -> task.getLawId().equals(version.getLawId()))
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.CONFLICT,
+                        RevisionErrorCodes.BASE_ANNOTATION_INVALID,
+                        "修订任务基础正式标注版本无效"));
+    }
+
+    private static Map<String, ArticleDraftValues> revisionArticleSnapshots(
+            TaskDocument task,
+            TaskDraftDocument draft,
+            AnnotationVersionDocument base) {
+        Map<String, ArticleDraftValues> saved = draft == null
+                ? Map.of()
+                : draft.getPerArticleDrafts();
+        Map<String, ArticleDraftValues> snapshots = new LinkedHashMap<>();
+        for (var article : task.getContentVersionSnapshot().articles()) {
+            ArticleDraftValues value = task.getRevisionScope().includesArticle(article.articleId())
+                    ? saved.get(article.articleId())
+                    : base.getArticleResults().get(article.articleId());
+            if (value == null) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        RevisionErrorCodes.BASE_ANNOTATION_INVALID,
+                        "无法为当前内容版本合成完整修订提交");
+            }
+            snapshots.put(article.articleId(), value);
+        }
+        return Map.copyOf(snapshots);
+    }
+
+    private static Map<String, ArticleDraftValues> revisionRereviewArticleSnapshots(
+            TaskDocument task,
+            TaskDraftDocument draft,
+            TaskSubmissionDocument baseline,
+            List<ReviewItemLocator> modifiedScope) {
+        Map<String, ArticleDraftValues> saved = draft.getPerArticleDrafts();
+        Map<String, ArticleDraftValues> snapshots = new LinkedHashMap<>();
+        for (var article : task.getContentVersionSnapshot().articles()) {
+            boolean modified = modifiedScope.stream().anyMatch(locator ->
+                    locator.type() == ReviewScopeType.ARTICLE
+                            && article.articleId().equals(locator.articleId()));
+            ArticleDraftValues value = modified
+                    ? saved.get(article.articleId())
+                    : baseline.getArticleSnapshots().get(article.articleId());
+            if (value == null) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        RevisionErrorCodes.BASE_ANNOTATION_INVALID,
+                        "无法为当前内容版本合成完整复审提交");
+            }
+            snapshots.put(article.articleId(), value);
+        }
+        return Map.copyOf(snapshots);
     }
 
     private static Map<String, ArticleDraftValues> orderedArticleSnapshots(

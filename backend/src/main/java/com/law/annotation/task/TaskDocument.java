@@ -3,6 +3,7 @@ package com.law.annotation.task;
 import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.enums.TaskType;
 import com.law.annotation.field.FieldConfigSnapshot;
+import com.law.annotation.revision.RevisionScope;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.data.annotation.Id;
@@ -25,6 +26,8 @@ public class TaskDocument {
     private TaskLawBaseInfoSnapshot lawBaseInfoSnapshot;
     private List<TaskStructureNodeSnapshot> structureSnapshot;
     private FieldConfigSnapshot fieldConfigSnapshot;
+    private String baseAnnotationVersionId;
+    private RevisionScope revisionScope;
     private String createdBy;
     private String initialSubmissionId;
     private String currentSubmissionId;
@@ -60,6 +63,54 @@ public class TaskDocument {
             Instant canceledAt,
             Instant createdAt,
             Instant updatedAt) {
+        this(
+                taskId,
+                taskType,
+                taskState,
+                lawId,
+                annotatorId,
+                annotatorNameSnapshot,
+                taskName,
+                remark,
+                contentVersionId,
+                contentVersionSnapshot,
+                lawBaseInfoSnapshot,
+                structureSnapshot,
+                fieldConfigSnapshot,
+                null,
+                null,
+                createdBy,
+                initialSubmissionId,
+                cancelReason,
+                canceledBy,
+                canceledAt,
+                createdAt,
+                updatedAt);
+    }
+
+    public TaskDocument(
+            String taskId,
+            TaskType taskType,
+            TaskState taskState,
+            String lawId,
+            String annotatorId,
+            String annotatorNameSnapshot,
+            String taskName,
+            String remark,
+            String contentVersionId,
+            TaskContentVersionSnapshot contentVersionSnapshot,
+            TaskLawBaseInfoSnapshot lawBaseInfoSnapshot,
+            List<TaskStructureNodeSnapshot> structureSnapshot,
+            FieldConfigSnapshot fieldConfigSnapshot,
+            String baseAnnotationVersionId,
+            RevisionScope revisionScope,
+            String createdBy,
+            String initialSubmissionId,
+            String cancelReason,
+            String canceledBy,
+            Instant canceledAt,
+            Instant createdAt,
+            Instant updatedAt) {
         this.taskId = taskId;
         this.taskType = taskType;
         this.taskState = taskState;
@@ -73,6 +124,8 @@ public class TaskDocument {
         this.lawBaseInfoSnapshot = lawBaseInfoSnapshot;
         this.structureSnapshot = List.copyOf(structureSnapshot);
         this.fieldConfigSnapshot = fieldConfigSnapshot;
+        this.baseAnnotationVersionId = baseAnnotationVersionId;
+        this.revisionScope = revisionScope;
         this.createdBy = createdBy;
         this.initialSubmissionId = initialSubmissionId;
         this.currentSubmissionId = initialSubmissionId;
@@ -133,6 +186,14 @@ public class TaskDocument {
 
     public FieldConfigSnapshot getFieldConfigSnapshot() {
         return fieldConfigSnapshot;
+    }
+
+    public String getBaseAnnotationVersionId() {
+        return baseAnnotationVersionId;
+    }
+
+    public RevisionScope getRevisionScope() {
+        return revisionScope;
     }
 
     public String getCreatedBy() {

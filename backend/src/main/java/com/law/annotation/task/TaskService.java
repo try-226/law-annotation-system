@@ -13,6 +13,8 @@ import com.law.annotation.field.FieldConfigSnapshot;
 import com.law.annotation.law.LawDocument;
 import com.law.annotation.law.LawOperationCoordinator;
 import com.law.annotation.law.LawRepository;
+import com.law.annotation.revision.RevisionErrorCodes;
+import com.law.annotation.revision.RevisionScope;
 import com.law.annotation.task.dto.TaskDetailResponse;
 import com.law.annotation.task.dto.TaskListItemResponse;
 import com.law.annotation.user.UserDocument;
@@ -40,6 +42,7 @@ public class TaskService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_TASK_NAME_LENGTH = 100;
     private static final String AUTO_TASK_NAME_SUFFIX = "普通标注任务";
+    private static final String AUTO_REVISION_TASK_NAME_SUFFIX = "修订标注任务";
     private static final List<TaskState> CANCELABLE_STATES = List.of(
             TaskState.PENDING_ANNOTATION,
             TaskState.ANNOTATING);
@@ -102,7 +105,8 @@ public class TaskService {
         String validRemark = optionalText(remark, "remark", 500);
 
         LawDocument law = requireEligibleLaw(validLawId);
-        String validTaskName = resolveTaskName(taskName, law.getName());
+        String validTaskName = resolveTaskName(
+                taskName, law.getName(), AUTO_TASK_NAME_SUFFIX);
         if (taskRepository.existsByLawIdAndTaskStateIn(
                 validLawId, TaskStateRules.UNFINISHED_STATES)) {
             throw activeTaskConflict();
@@ -151,12 +155,126 @@ public class TaskService {
         }
     }
 
+    public TaskDetailResponse createRevisionTask(
+            String lawId,
+            String annotatorId,
+            String taskName,
+            String remark,
+            String createdBy,
+            String expectedContentVersionId,
+            String expectedBaseAnnotationVersionId,
+            RevisionScope revisionScope) {
+        String validLawId = requireIdentifier(lawId, "lawId");
+        String validContentVersionId = requireIdentifier(
+                expectedContentVersionId, "expectedContentVersionId");
+        String validBaseAnnotationVersionId = requireIdentifier(
+                expectedBaseAnnotationVersionId, "expectedBaseAnnotationVersionId");
+        if (revisionScope == null) {
+            throw validation("revisionScope", "不能为空");
+        }
+        return operationCoordinator.withVisibleLaw(
+                validLawId,
+                TaskService::activeTaskConflict,
+                operationToken -> createRevisionTaskLocked(
+                        validLawId,
+                        annotatorId,
+                        taskName,
+                        remark,
+                        createdBy,
+                        validContentVersionId,
+                        validBaseAnnotationVersionId,
+                        revisionScope,
+                        operationToken));
+    }
+
+    private TaskDetailResponse createRevisionTaskLocked(
+            String lawId,
+            String annotatorId,
+            String taskName,
+            String remark,
+            String createdBy,
+            String expectedContentVersionId,
+            String expectedBaseAnnotationVersionId,
+            RevisionScope revisionScope,
+            String operationToken) {
+        String validAnnotatorId = requireIdentifier(annotatorId, "annotatorId");
+        String validCreator = requireIdentifier(createdBy, "createdBy");
+        String validRemark = optionalText(remark, "remark", 500);
+        LawDocument law = lawRepository.findById(lawId).orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                TaskErrorCodes.LAW_NOT_FOUND,
+                "法律不存在"));
+        if (law.getDeletedAt() != null) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    TaskErrorCodes.LAW_DELETED,
+                    "已删除的法律不能创建任务");
+        }
+        if (!Objects.equals(law.getCurrentContentVersionId(), expectedContentVersionId)
+                || !Objects.equals(
+                        law.getCurrentAnnotationVersionId(), expectedBaseAnnotationVersionId)) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    RevisionErrorCodes.BASIS_CHANGED,
+                    "法律修订基线已变化，请刷新后重试");
+        }
+        if (taskRepository.existsByLawIdAndTaskStateIn(
+                lawId, TaskStateRules.UNFINISHED_STATES)) {
+            throw activeTaskConflict();
+        }
+        ContentVersionDocument contentVersion = contentVersionRepository
+                .findById(expectedContentVersionId)
+                .filter(version -> lawId.equals(version.getLawId()))
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.CONFLICT,
+                        TaskErrorCodes.CONTENT_VERSION_INVALID,
+                        "法律当前内容版本无效"));
+        if (contentVersion.getSemanticArticlesSnapshot().isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    TaskErrorCodes.NO_VALID_ARTICLE,
+                    "法律至少需要一条有效法条才能创建任务");
+        }
+        UserDocument annotator = requireEligibleAnnotator(validAnnotatorId);
+        FieldConfigSnapshot fieldConfigSnapshot = fieldConfigService.getCurrentSnapshot();
+        Instant now = Instant.now();
+        TaskDocument task = new TaskDocument(
+                UUID.randomUUID().toString(),
+                TaskType.REVISION,
+                TaskState.PENDING_ANNOTATION,
+                law.getId(),
+                annotator.getId(),
+                annotator.getName(),
+                resolveTaskName(taskName, law.getName(), AUTO_REVISION_TASK_NAME_SUFFIX),
+                validRemark,
+                contentVersion.getId(),
+                TaskContentVersionSnapshot.from(contentVersion),
+                TaskLawBaseInfoSnapshot.from(law),
+                law.getStructure().stream().map(TaskStructureNodeSnapshot::from).toList(),
+                fieldConfigSnapshot,
+                expectedBaseAnnotationVersionId,
+                revisionScope,
+                validCreator,
+                null,
+                null,
+                null,
+                null,
+                now,
+                now);
+        operationCoordinator.renewVisibleLaw(
+                lawId, operationToken, TaskService::activeTaskConflict);
+        try {
+            return TaskDetailResponse.from(taskRepository.insert(task));
+        } catch (DuplicateKeyException exception) {
+            throw activeTaskConflict();
+        }
+    }
+
     public TaskDetailResponse start(String taskId, String actorId) {
         String validTaskId = requireIdentifier(taskId, "taskId");
         String validActorId = requireIdentifier(actorId, "actorId");
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("_id").is(validTaskId)
-                .and("taskType").is(TaskType.ORDINARY)
                 .and("taskState").is(TaskState.PENDING_ANNOTATION)
                 .and("annotatorId").is(validActorId));
         TaskDocument updated = mongoTemplate.findAndModify(
@@ -189,7 +307,6 @@ public class TaskService {
         String validSubmissionId = requireIdentifier(submissionId, "submissionId");
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("_id").is(validTaskId)
-                .and("taskType").is(TaskType.ORDINARY)
                 .and("taskState").is(TaskState.ANNOTATING)
                 .and("annotatorId").is(validActorId)
                 .and("initialSubmissionId").is(null));
@@ -233,7 +350,6 @@ public class TaskService {
         String validSubmissionId = requireIdentifier(submissionId, "submissionId");
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("_id").is(validTaskId)
-                .and("taskType").is(TaskType.ORDINARY)
                 .and("taskState").is(TaskState.PARTIALLY_REJECTED)
                 .and("annotatorId").is(validActorId)
                 .and("currentReviewRoundId").is(validRoundId));
@@ -268,7 +384,6 @@ public class TaskService {
         String validReason = requiredText(reason, "reason", 500);
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("_id").is(validTaskId)
-                .and("taskType").is(TaskType.ORDINARY)
                 .and("taskState").in(CANCELABLE_STATES));
         TaskDocument updated = mongoTemplate.findAndModify(
                 query,
@@ -299,10 +414,10 @@ public class TaskService {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw validation("page/size", "page不能小于0，size须为1至100");
         }
-        if (taskType != null && taskType != TaskType.ORDINARY) {
-            throw validation("taskType", "PR08仅支持ORDINARY普通任务");
+        Criteria criteria = new Criteria();
+        if (taskType != null) {
+            criteria = criteria.and("taskType").is(taskType);
         }
-        Criteria criteria = Criteria.where("taskType").is(TaskType.ORDINARY);
         if (lawId != null && !lawId.isBlank()) {
             criteria = criteria.and("lawId").is(requireIdentifier(lawId, "lawId"));
         }
@@ -448,19 +563,18 @@ public class TaskService {
         return requiredText(value, path, maxLength);
     }
 
-    private static String resolveTaskName(String taskName, String lawName) {
+    private static String resolveTaskName(String taskName, String lawName, String suffix) {
         if (taskName != null && !taskName.isBlank()) {
             return requiredText(taskName, "taskName", MAX_TASK_NAME_LENGTH);
         }
         String validLawName = lawName == null ? "" : lawName.trim();
         if (validLawName.isBlank()) {
-            return AUTO_TASK_NAME_SUFFIX;
+            return suffix;
         }
-        int suffixLength = AUTO_TASK_NAME_SUFFIX.codePointCount(
-                0, AUTO_TASK_NAME_SUFFIX.length());
+        int suffixLength = suffix.codePointCount(0, suffix.length());
         int maxLawNameLength = MAX_TASK_NAME_LENGTH - suffixLength;
         return truncateToCodePoints(validLawName, maxLawNameLength)
-                + AUTO_TASK_NAME_SUFFIX;
+                + suffix;
     }
 
     private static String truncateToCodePoints(String value, int maxLength) {

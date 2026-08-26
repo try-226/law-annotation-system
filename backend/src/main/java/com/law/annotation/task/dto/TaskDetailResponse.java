@@ -7,6 +7,7 @@ import com.law.annotation.task.TaskContentVersionSnapshot;
 import com.law.annotation.task.TaskDocument;
 import com.law.annotation.task.TaskLawBaseInfoSnapshot;
 import com.law.annotation.task.TaskStructureNodeSnapshot;
+import com.law.annotation.revision.RevisionScope;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,6 +25,8 @@ public record TaskDetailResponse(
         TaskLawBaseInfoSnapshot lawBaseInfoSnapshot,
         List<TaskStructureNodeSnapshot> structureSnapshot,
         FieldConfigSnapshot fieldConfigSnapshot,
+        String baseAnnotationVersionId,
+        RevisionScope revisionScope,
         String createdBy,
         String cancelReason,
         String canceledBy,
@@ -50,6 +53,8 @@ public record TaskDetailResponse(
                 task.getLawBaseInfoSnapshot(),
                 task.getStructureSnapshot(),
                 task.getFieldConfigSnapshot(),
+                task.getBaseAnnotationVersionId(),
+                task.getRevisionScope(),
                 task.getCreatedBy(),
                 task.getCancelReason(),
                 task.getCanceledBy(),

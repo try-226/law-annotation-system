@@ -3,6 +3,7 @@ package com.law.annotation.review.dto;
 import com.law.annotation.annotation.ArticleDraftValues;
 import com.law.annotation.annotation.OverallDraftValues;
 import com.law.annotation.annotation.TaskSubmissionDocument;
+import com.law.annotation.version.AnnotationVersionDocument;
 import java.time.Instant;
 import java.util.Map;
 
@@ -27,5 +28,17 @@ public record ReviewSubmissionSnapshotResponse(
                 submission.getOverallSnapshot(),
                 submission.getArticleSnapshots(),
                 submission.getSubmittedAt());
+    }
+
+    public static ReviewSubmissionSnapshotResponse from(AnnotationVersionDocument version) {
+        if (version == null) {
+            return null;
+        }
+        return new ReviewSubmissionSnapshotResponse(
+                version.getId(),
+                version.getSeq(),
+                version.getOverallResult(),
+                version.getArticleResults(),
+                version.getApprovedAt());
     }
 }
