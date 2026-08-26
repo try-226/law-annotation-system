@@ -382,6 +382,33 @@ class TaskServiceTests {
     }
 
     @Test
+    void submitRereviewClearsPreviousRoundInSameConditionalUpdate() {
+        TaskDocument pendingRereview = task(TaskState.PENDING_REREVIEW, null);
+        when(mongoTemplate.findAndModify(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class)))
+                .thenReturn(pendingRereview);
+
+        TaskDetailResponse response = service.submitRereview(
+                "task-1", "annotator-1", "round-1", "submission-2");
+
+        assertThat(response.taskState()).isEqualTo(TaskState.PENDING_REREVIEW);
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).findAndModify(
+                queryCaptor.capture(), updateCaptor.capture(), any(),
+                org.mockito.ArgumentMatchers.eq(TaskDocument.class));
+        assertThat(queryCaptor.getValue().getQueryObject())
+                .containsEntry("taskState", TaskState.PARTIALLY_REJECTED)
+                .containsEntry("annotatorId", "annotator-1")
+                .containsEntry("currentReviewRoundId", "round-1");
+        assertThat(updateCaptor.getValue().getUpdateObject().get("$set", org.bson.Document.class))
+                .containsEntry("taskState", TaskState.PENDING_REREVIEW)
+                .containsEntry("currentSubmissionId", "submission-2");
+        assertThat(updateCaptor.getValue().getUpdateObject().get("$unset", org.bson.Document.class))
+                .containsKey("currentReviewRoundId");
+    }
+
+    @Test
     void onlyAssignedAnnotatorCanSubmitReview() {
         when(taskRepository.findById("task-1"))
                 .thenReturn(Optional.of(task(TaskState.ANNOTATING, null)));

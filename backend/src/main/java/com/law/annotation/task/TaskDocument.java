@@ -27,6 +27,9 @@ public class TaskDocument {
     private FieldConfigSnapshot fieldConfigSnapshot;
     private String createdBy;
     private String initialSubmissionId;
+    private String currentSubmissionId;
+    private String currentReviewRoundId;
+    private String approvedAnnotationVersionId;
     private String cancelReason;
     private String canceledBy;
     private Instant canceledAt;
@@ -72,6 +75,7 @@ public class TaskDocument {
         this.fieldConfigSnapshot = fieldConfigSnapshot;
         this.createdBy = createdBy;
         this.initialSubmissionId = initialSubmissionId;
+        this.currentSubmissionId = initialSubmissionId;
         this.cancelReason = cancelReason;
         this.canceledBy = canceledBy;
         this.canceledAt = canceledAt;
@@ -137,6 +141,18 @@ public class TaskDocument {
 
     public String getInitialSubmissionId() {
         return initialSubmissionId;
+    }
+
+    public String getCurrentSubmissionId() {
+        return currentSubmissionId;
+    }
+
+    public String getCurrentReviewRoundId() {
+        return currentReviewRoundId;
+    }
+
+    public String getApprovedAnnotationVersionId() {
+        return approvedAnnotationVersionId;
     }
 
     public String getCancelReason() {
