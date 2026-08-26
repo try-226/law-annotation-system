@@ -110,6 +110,11 @@ onMounted(loadTask)
         <div class="detail-actions">
           <button v-if="!isAdmin && task.taskState === 'PENDING_ANNOTATION'" class="button button--primary" type="button" :disabled="starting" @click="startCurrentTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : '开始标注' }}</button>
           <RouterLink v-else-if="!isAdmin" class="button button--primary" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ annotatorWorkbenchLabel }}</RouterLink>
+          <RouterLink
+            v-if="isAdmin && (task.taskState === 'PENDING_REVIEW' || task.taskState === 'PENDING_REREVIEW')"
+            class="button button--primary"
+            :to="{ name: 'review-workbench', params: { taskId: task.taskId } }"
+          >进入{{ task.taskState === 'PENDING_REREVIEW' ? '复审' : '初审' }}工作台</RouterLink>
           <button v-if="isAdmin && isCancelableTaskState(task.taskState)" class="button button--danger" type="button" @click="cancelOpen = true">取消任务</button>
         </div>
       </section>
