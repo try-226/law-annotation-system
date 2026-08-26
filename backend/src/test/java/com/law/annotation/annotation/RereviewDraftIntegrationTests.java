@@ -12,6 +12,7 @@ import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.field.FieldConfigService;
 import com.law.annotation.law.LawOperationCoordinator;
 import com.law.annotation.law.LawRepository;
+import com.law.annotation.review.ReviewErrorCodes;
 import com.law.annotation.review.ReviewIssue;
 import com.law.annotation.review.ReviewItemLocator;
 import com.law.annotation.review.ReviewRoundDocument;
@@ -55,6 +56,7 @@ class RereviewDraftIntegrationTests {
     private static TaskSubmissionRepository submissionRepository;
     private static ReviewRoundRepository roundRepository;
     private static AnnotationDraftService draftService;
+    private static ReviewService reviewService;
 
     @BeforeAll
     static void startMongo() throws Exception {
@@ -80,7 +82,7 @@ class RereviewDraftIntegrationTests {
                 org.mockito.Mockito.mock(FieldConfigService.class),
                 mongoTemplate,
                 org.mockito.Mockito.mock(LawOperationCoordinator.class));
-        ReviewService reviewService = new ReviewService(
+        reviewService = new ReviewService(
                 taskRepository,
                 submissionRepository,
                 roundRepository,
@@ -216,7 +218,39 @@ class RereviewDraftIntegrationTests {
         assertThat(rereview.getArticleSnapshots().get("article-2").keywords())
                 .isEqualTo("旧权利");
         TaskDocument task = taskRepository.findById("task-1").orElseThrow();
+        assertThat(task.getTaskState()).isEqualTo(TaskState.PENDING_REREVIEW);
         assertThat(task.getCurrentSubmissionId()).isEqualTo(rereview.getSubmissionId());
+        assertThat(task.getCurrentReviewRoundId()).isNull();
+        var admin2 = AnnotationTestFixtures.principal("admin-2", Role.ADMIN);
+        assertThatThrownBy(() -> reviewService.getReview("task-1", admin2))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ReviewErrorCodes.NOT_STARTED);
+
+        var started = reviewService.start("task-1", admin2);
+        ReviewRoundDocument secondRound = roundRepository
+                .findById(started.reviewRoundId()).orElseThrow();
+        assertThat(secondRound.getRoundType()).isEqualTo(ReviewRoundType.REREVIEW);
+        assertThat(secondRound.getReviewerId()).isEqualTo("admin-2");
+        assertThat(taskRepository.findById("task-1").orElseThrow()
+                .getCurrentReviewRoundId()).isEqualTo(secondRound.getReviewRoundId());
+
+        ReviewRoundDocument firstRound = roundRepository.findById("round-1").orElseThrow();
+        assertThat(firstRound.getReviewerId()).isEqualTo("admin-1");
+        assertThat(firstRound.getCompletedAt()).isNotNull();
+        assertThat(rereview.getSourceReviewRoundId()).isEqualTo(firstRound.getReviewRoundId());
+
+        var admin3 = AnnotationTestFixtures.principal("admin-3", Role.ADMIN);
+        assertThatThrownBy(() -> reviewService.check(
+                        "task-1",
+                        secondRound.getReviewRoundId(),
+                        ReviewItemLocator.article("article-1"),
+                        admin3))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ReviewErrorCodes.NOT_REVIEWER);
+        assertThat(roundRepository.findById("round-1").orElseThrow().getReviewerId())
+                .isEqualTo("admin-1");
     }
 
     private static SaveArticleDraftRequest completeArticle(String keywords) {

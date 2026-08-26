@@ -242,6 +242,7 @@ public class TaskService {
                 new Update()
                         .set("taskState", TaskState.PENDING_REREVIEW)
                         .set("currentSubmissionId", validSubmissionId)
+                        .unset("currentReviewRoundId")
                         .set("updatedAt", now),
                 FindAndModifyOptions.options().returnNew(true),
                 TaskDocument.class);

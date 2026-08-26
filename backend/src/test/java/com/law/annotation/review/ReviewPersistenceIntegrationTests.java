@@ -493,7 +493,8 @@ class ReviewPersistenceIntegrationTests {
                 Query.query(Criteria.where("_id").is("task-1")),
                 new Update()
                         .set("taskState", TaskState.PENDING_REREVIEW)
-                        .set("currentSubmissionId", submissionId),
+                        .set("currentSubmissionId", submissionId)
+                        .unset("currentReviewRoundId"),
                 TaskDocument.class);
     }
 
