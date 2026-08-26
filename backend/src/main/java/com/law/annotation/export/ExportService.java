@@ -64,7 +64,8 @@ public class ExportService {
         ContentVersionDocument version = requireCurrentVersion(law);
         List<ArticleSnapshot> selectedArticles = selectArticles(
                 version.getSemanticArticlesSnapshot(), request);
-        PlainLawExport export = buildExport(law, version, selectedArticles);
+        PlainLawExport export = buildExport(
+                law, version, selectedArticles, request.scope());
         String extension = request.format().name().toLowerCase(Locale.ROOT);
         String filename = "law-" + safeFilenamePart(law.getId()) + "-plain." + extension;
 
@@ -130,7 +131,8 @@ public class ExportService {
     private PlainLawExport buildExport(
             LawDocument law,
             ContentVersionDocument version,
-            List<ArticleSnapshot> articles) {
+            List<ArticleSnapshot> articles,
+            LawExportRequest.Scope scope) {
         List<LawStructureNode> structure = law.getStructure().stream()
                 .sorted(Comparator.comparingInt(LawStructureNode::getOrder))
                 .toList();
@@ -138,6 +140,12 @@ public class ExportService {
                 .map(ArticleSnapshot::getArticleId)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         Map<String, List<String>> structurePaths = structurePaths(structure, currentArticleIds);
+        Set<String> exportedArticleIds = articles.stream()
+                .map(ArticleSnapshot::getArticleId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        List<LawStructureNode> exportedStructure = scope == LawExportRequest.Scope.WHOLE
+                ? structure
+                : selectedStructure(structure, exportedArticleIds);
 
         return new PlainLawExport(
                 new PlainLawExport.LawInfo(
@@ -148,14 +156,16 @@ public class ExportService {
                         law.getValidityStatus(),
                         version.getId(),
                         version.getSeq()),
-                structure.stream()
+                exportedStructure.stream()
                         .map(node -> new PlainLawExport.StructureNode(
                                 node.getNodeId(),
                                 node.getType(),
                                 node.getTitle(),
                                 node.getParentNodeId(),
                                 node.getOrder(),
-                                node.getArticleIds()))
+                                node.getArticleIds().stream()
+                                        .filter(exportedArticleIds::contains)
+                                        .toList()))
                         .toList(),
                 articles.stream()
                         .map(article -> new PlainLawExport.Article(
@@ -165,6 +175,34 @@ public class ExportService {
                                 article.getOrder(),
                                 structurePaths.getOrDefault(article.getArticleId(), List.of())))
                         .toList());
+    }
+
+    private static List<LawStructureNode> selectedStructure(
+            List<LawStructureNode> structure,
+            Set<String> selectedArticleIds) {
+        Map<String, LawStructureNode> nodesById = new HashMap<>();
+        structure.forEach(node -> nodesById.put(node.getNodeId(), node));
+
+        Set<String> requiredNodeIds = new HashSet<>();
+        for (LawStructureNode node : structure) {
+            boolean containsSelectedArticle = node.getArticleIds().stream()
+                    .anyMatch(selectedArticleIds::contains);
+            if (!containsSelectedArticle) {
+                continue;
+            }
+
+            LawStructureNode current = node;
+            while (current != null && requiredNodeIds.add(current.getNodeId())) {
+                String parentNodeId = current.getParentNodeId();
+                current = parentNodeId == null || parentNodeId.isBlank()
+                        ? null
+                        : nodesById.get(parentNodeId);
+            }
+        }
+
+        return structure.stream()
+                .filter(node -> requiredNodeIds.contains(node.getNodeId()))
+                .toList();
     }
 
     private static Map<String, List<String>> structurePaths(

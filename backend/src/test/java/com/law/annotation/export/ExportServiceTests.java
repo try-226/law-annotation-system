@@ -27,6 +27,7 @@ import com.law.annotation.version.ContentVersionRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -76,6 +77,8 @@ class ExportServiceTests {
         assertThat(json.path("law").path("currentContentVersionId").asText())
                 .isEqualTo("content-2");
         assertThat(json.path("structure").get(1).path("title").asText()).isEqualTo("当前第一节");
+        assertThat(articleIdsInStructure(json.path("structure")))
+                .containsExactlyInAnyOrder("article-1", "article-2", "article-3");
         assertThat(json.path("articles")).extracting(node -> node.path("articleId").asText())
                 .containsExactly("article-1", "article-2", "article-3");
         assertThat(json.path("articles").get(2).path("structurePath"))
@@ -89,7 +92,7 @@ class ExportServiceTests {
     }
 
     @Test
-    void selectedJsonUsesLatestContentOrderInsteadOfRequestOrder() throws Exception {
+    void selectedJsonFiltersStructureToRelatedNodesAndKeepsPaths() throws Exception {
         LawDocument law = law("content-2", false, false, null);
         givenCurrentLaw(law, version("content-2", 2, articles()));
 
@@ -100,10 +103,22 @@ class ExportServiceTests {
                         List.of("article-3", "article-1"),
                         LawExportRequest.Format.JSON));
 
-        JsonNode articles = objectMapper.readTree(file.content()).path("articles");
-        assertThat(articles).extracting(node -> node.path("articleId").asText())
+        JsonNode json = objectMapper.readTree(file.content());
+        JsonNode exportedArticles = json.path("articles");
+        assertThat(exportedArticles).extracting(node -> node.path("articleId").asText())
                 .containsExactly("article-1", "article-3")
                 .doesNotContain("article-2");
+        assertThat(json.path("structure")).extracting(node -> node.path("nodeId").asText())
+                .containsExactly("chapter-1", "section-1")
+                .doesNotContain("chapter-2");
+        assertThat(articleIdsInStructure(json.path("structure")))
+                .containsExactlyInAnyOrder("article-1", "article-3")
+                .doesNotContain("article-2");
+        assertThat(json.path("structure").get(1).path("parentNodeId").asText())
+                .isEqualTo("chapter-1");
+        assertThat(exportedArticles.get(1).path("structurePath"))
+                .extracting(JsonNode::asText)
+                .containsExactly("当前第一章", "当前第一节");
     }
 
     @Test
@@ -297,6 +312,13 @@ class ExportServiceTests {
                 new ArticleSnapshot("article-3", "第三条", "第三条正文", 2));
     }
 
+    private static List<String> articleIdsInStructure(JsonNode structure) {
+        List<String> articleIds = new ArrayList<>();
+        structure.forEach(node -> node.path("articleIds")
+                .forEach(articleId -> articleIds.add(articleId.asText())));
+        return articleIds;
+    }
+
     private static ContentVersionDocument version(
             String id,
             int seq,
@@ -316,14 +338,21 @@ class ExportServiceTests {
                         "当前第一章",
                         null,
                         0,
-                        List.of("article-1", "article-2")),
+                        List.of("article-1")),
                 new LawStructureNode(
                         "section-1",
                         LawStructureNodeType.SECTION,
                         "当前第一节",
                         "chapter-1",
                         1,
-                        List.of("article-3")));
+                        List.of("article-3")),
+                new LawStructureNode(
+                        "chapter-2",
+                        LawStructureNodeType.CHAPTER,
+                        "当前第二章",
+                        null,
+                        2,
+                        List.of("article-2")));
         LawDocument law = new LawDocument(
                 "law-1",
                 "当前法律名称",
