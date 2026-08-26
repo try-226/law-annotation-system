@@ -14,6 +14,8 @@ import com.law.annotation.task.TaskDocument;
 import com.law.annotation.task.TaskStructureNodeSnapshot;
 import com.law.annotation.review.ReviewItemLocator;
 import com.law.annotation.review.ReviewScopeType;
+import com.law.annotation.revision.RevisionScope;
+import com.law.annotation.common.enums.TaskType;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -59,6 +61,22 @@ final class AnnotationDraftRules {
     }
 
     static AnnotationProgressResponse progress(TaskDocument task, TaskDraftDocument draft) {
+        if (task.getTaskType() == TaskType.REVISION && task.getRevisionScope() != null) {
+            RevisionScope scope = task.getRevisionScope();
+            Map<String, ArticleDraftValues> articles = draft == null
+                    ? Map.of()
+                    : draft.getPerArticleDrafts();
+            int filledArticles = (int) scope.articleIds().stream()
+                    .filter(articleId -> articles.containsKey(articleId)
+                            && isArticleComplete(task, articles.get(articleId)))
+                    .count();
+            boolean overallCompleted = !scope.overall()
+                    || (draft != null
+                            && draft.getOverallDraft() != null
+                            && isOverallComplete(task, draft.getOverallDraft()));
+            return new AnnotationProgressResponse(
+                    scope.articleIds().size(), filledArticles, overallCompleted);
+        }
         int totalArticles = task.getContentVersionSnapshot().articles().size();
         Map<String, ArticleDraftValues> articles = draft == null
                 ? Map.of()
@@ -78,6 +96,33 @@ final class AnnotationDraftRules {
         task.getContentVersionSnapshot().articles().forEach(
                 article -> fullScope.add(ReviewItemLocator.article(article.articleId())));
         return missingRequired(task, draft, fullScope);
+    }
+
+    static List<ErrorLocator> missingRequiredForRevision(
+            TaskDocument task,
+            TaskDraftDocument draft) {
+        RevisionScope revisionScope = task.getRevisionScope();
+        if (revisionScope == null) {
+            throw new IllegalArgumentException("REVISION任务缺少revisionScope");
+        }
+        List<ErrorLocator> locators = new ArrayList<>();
+        if (revisionScope.overall()
+                && (draft == null || draft.getOverallDraft() == null)) {
+            locators.add(new ErrorLocator("overall", "修订范围内的整体标注尚未保存"));
+        }
+        Map<String, ArticleDraftValues> articles = draft == null
+                ? Map.of()
+                : draft.getPerArticleDrafts();
+        revisionScope.articleIds().stream()
+                .filter(articleId -> !articles.containsKey(articleId)
+                        || articles.get(articleId) == null)
+                .forEach(articleId -> locators.add(new ErrorLocator(
+                        "articles." + articleId,
+                        "修订范围内的法条标注尚未保存")));
+        if (!locators.isEmpty()) {
+            return List.copyOf(locators);
+        }
+        return missingRequired(task, draft, revisionScope.toReviewScope());
     }
 
     static List<ErrorLocator> missingRequired(

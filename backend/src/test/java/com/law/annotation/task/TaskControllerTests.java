@@ -320,6 +320,8 @@ class TaskControllerTests {
                         "测试法", "制定机关", LocalDate.of(2026, 8, 23), ValidityStatus.ACTIVE),
                 List.of(),
                 new FieldConfigSnapshot(List.of(), List.of()),
+                null,
+                null,
                 "admin-1",
                 null,
                 null,

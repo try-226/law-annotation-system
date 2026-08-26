@@ -7,9 +7,12 @@ import com.law.annotation.auth.UserPrincipal;
 import com.law.annotation.common.enums.ReviewItemState;
 import com.law.annotation.common.enums.Role;
 import com.law.annotation.common.enums.TaskState;
+import com.law.annotation.common.enums.TaskType;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.common.response.ErrorLocator;
 import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.PendingChangeSet;
+import com.law.annotation.revision.RevisionMode;
 import com.law.annotation.review.dto.ReviewDetailResponse;
 import com.law.annotation.review.dto.ReviewItemResponse;
 import com.law.annotation.review.dto.ReviewProgressResponse;
@@ -428,7 +431,9 @@ public class ReviewService {
                         || !Objects.equals(round.getAnnotationVersionId(), existing.getId()))) {
             throw completionConflict("审核轮次的正式标注引用与完成意图不一致");
         }
-        if (law.getCurrentAnnotationVersionId() != null
+        if (task.getTaskType() == TaskType.REVISION) {
+            validateRevisionLawBasis(law, task, existing);
+        } else if (law.getCurrentAnnotationVersionId() != null
                 && (existing == null
                         || !Objects.equals(
                                 law.getCurrentAnnotationVersionId(),
@@ -506,22 +511,46 @@ public class ReviewService {
     private void ensureLawAnnotationReference(
             TaskDocument task,
             AnnotationVersionDocument version) {
+        Criteria annotationReference;
+        Update update = new Update()
+                .set("currentAnnotationVersionId", version.getId())
+                .set("updatedAt", Instant.now());
+        if (task.getTaskType() == TaskType.REVISION) {
+            RevisionMode mode = task.getRevisionScope().mode();
+            Criteria beforeCompletion = new Criteria().andOperator(
+                    Criteria.where("currentAnnotationVersionId")
+                            .is(task.getBaseAnnotationVersionId()),
+                    mode == RevisionMode.CONTENT_CHANGE
+                            ? Criteria.where("pendingRevision").is(true)
+                            : emptyPendingCriteria());
+            Criteria recovered = new Criteria().andOperator(
+                    Criteria.where("currentAnnotationVersionId").is(version.getId()),
+                    emptyPendingCriteria());
+            annotationReference = new Criteria().orOperator(beforeCompletion, recovered);
+            if (mode == RevisionMode.CONTENT_CHANGE) {
+                update.set("pendingRevision", false)
+                        .set("pendingChangeSet", PendingChangeSet.empty());
+            }
+        } else {
+            annotationReference = new Criteria().orOperator(
+                    Criteria.where("currentAnnotationVersionId").is(null),
+                    Criteria.where("currentAnnotationVersionId").is(version.getId()));
+        }
         Criteria criteria = new Criteria().andOperator(
                 Criteria.where("_id").is(task.getLawId()),
                 Criteria.where("currentContentVersionId").is(task.getContentVersionId()),
-                new Criteria().orOperator(
-                        Criteria.where("currentAnnotationVersionId").is(null),
-                        Criteria.where("currentAnnotationVersionId").is(version.getId())));
+                annotationReference);
         mongoTemplate.updateFirst(
                 Query.query(criteria),
-                new Update()
-                        .set("currentAnnotationVersionId", version.getId())
-                        .set("updatedAt", Instant.now()),
+                update,
                 LawDocument.class);
         LawDocument law = mongoTemplate.findById(task.getLawId(), LawDocument.class);
         if (law == null
                 || !Objects.equals(law.getCurrentContentVersionId(), task.getContentVersionId())
-                || !Objects.equals(law.getCurrentAnnotationVersionId(), version.getId())) {
+                || !Objects.equals(law.getCurrentAnnotationVersionId(), version.getId())
+                || (task.getTaskType() == TaskType.REVISION
+                        && (law.isPendingRevision()
+                                || !law.getPendingChangeSet().isEmpty()))) {
             throw new ApiException(
                     HttpStatus.CONFLICT,
                     ReviewErrorCodes.COMPLETION_CONFLICT,
@@ -633,6 +662,12 @@ public class ReviewService {
     }
 
     private static List<ReviewItemLocator> initialScope(TaskDocument task) {
+        if (task.getTaskType() == TaskType.REVISION) {
+            if (task.getRevisionScope() == null) {
+                throw sourceInvalid("修订任务缺少冻结revisionScope");
+            }
+            return task.getRevisionScope().toReviewScope();
+        }
         LinkedHashSet<ReviewItemLocator> scope = new LinkedHashSet<>();
         scope.add(ReviewItemLocator.overall());
         task.getContentVersionSnapshot().articles().forEach(
@@ -703,13 +738,60 @@ public class ReviewService {
         }
     }
 
+    private static void validateRevisionLawBasis(
+            LawDocument law,
+            TaskDocument task,
+            AnnotationVersionDocument existing) {
+        if (task.getRevisionScope() == null
+                || task.getBaseAnnotationVersionId() == null) {
+            throw completionConflict("修订任务缺少冻结修订基线");
+        }
+        String currentAnnotationVersionId = law.getCurrentAnnotationVersionId();
+        boolean beforeCompletion = Objects.equals(
+                currentAnnotationVersionId, task.getBaseAnnotationVersionId());
+        boolean recovered = existing != null
+                && Objects.equals(currentAnnotationVersionId, existing.getId());
+        if (!beforeCompletion && !recovered) {
+            throw completionConflict("法律当前正式标注引用与修订基线不一致");
+        }
+        boolean pendingEmpty = law.getPendingChangeSet() != null
+                && law.getPendingChangeSet().isEmpty();
+        if (task.getRevisionScope().mode() == RevisionMode.CONTENT_CHANGE) {
+            if ((beforeCompletion && (!law.isPendingRevision() || pendingEmpty))
+                    || (recovered && (law.isPendingRevision() || !pendingEmpty))) {
+                throw completionConflict("正文变更修订的pending状态与完成意图不一致");
+            }
+        } else if (law.isPendingRevision() || !pendingEmpty) {
+            throw completionConflict("标注修正型修订检测到未处理的semantic pending状态");
+        }
+    }
+
+    private static Criteria emptyPendingCriteria() {
+        return new Criteria().andOperator(
+                Criteria.where("pendingRevision").is(false),
+                Criteria.where("pendingChangeSet.addedArticleIds").size(0),
+                Criteria.where("pendingChangeSet.modifiedArticleIds").size(0),
+                Criteria.where("pendingChangeSet.deletedArticleIds").size(0));
+    }
+
     private ReviewDetailResponse toResponse(
             TaskDocument task,
             ReviewRoundDocument round,
             UserPrincipal currentUser) {
-        TaskSubmissionDocument before = round.getPreviousSubmissionId() == null
+        TaskSubmissionDocument previousSubmission = round.getPreviousSubmissionId() == null
                 ? null
                 : submissionRepository.findById(round.getPreviousSubmissionId()).orElse(null);
+        ReviewSubmissionSnapshotResponse before = previousSubmission == null
+                ? null
+                : ReviewSubmissionSnapshotResponse.from(previousSubmission);
+        if (before == null
+                && task.getTaskType() == TaskType.REVISION
+                && round.getRoundType() == ReviewRoundType.INITIAL_REVIEW) {
+            AnnotationVersionDocument base = annotationVersionRepository
+                    .findById(task.getBaseAnnotationVersionId())
+                    .orElseThrow(() -> sourceInvalid("修订任务基础正式标注版本不存在"));
+            before = ReviewSubmissionSnapshotResponse.from(base);
+        }
         TaskSubmissionDocument after = submissionRepository.findById(round.getSourceSubmissionId())
                 .orElseThrow(() -> sourceInvalid("审核来源提交不存在"));
         List<ReviewItemResponse> items = round.getRequiredScope().stream()
@@ -742,7 +824,7 @@ public class ReviewService {
                 task.getLawBaseInfoSnapshot(),
                 task.getStructureSnapshot(),
                 task.getFieldConfigSnapshot(),
-                ReviewSubmissionSnapshotResponse.from(before),
+                before,
                 ReviewSubmissionSnapshotResponse.from(after),
                 round.getCompletionOutcome(),
                 round.getAnnotationVersionId(),
