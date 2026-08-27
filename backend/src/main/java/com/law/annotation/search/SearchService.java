@@ -50,6 +50,7 @@ public class SearchService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int SNIPPET_BEFORE = 32;
     private static final int SNIPPET_AFTER = 48;
+    private static final Pattern COMMON_TEXT_WHITESPACE = Pattern.compile("[\\r\\n\\t ]+");
 
     private final SearchRepository searchRepository;
     private final ContentVersionRepository contentVersionRepository;
@@ -76,7 +77,8 @@ public class SearchService {
             int page,
             int size) {
         SearchQuery query = validate(q, scope, page, size);
-        List<LawDocument> laws = searchRepository.findVisibleLaws();
+        List<LawDocument> laws = searchRepository.findVisibleLawsMatching(
+                query.pattern(), query.scope());
         Map<String, ContentVersionDocument> versions = indexUnique(
                 contentVersionRepository.findByIdIn(laws.stream()
                         .map(LawDocument::getCurrentContentVersionId)
@@ -113,8 +115,12 @@ public class SearchService {
                     && law.getCurrentAnnotationVersionId() != null) {
                 AnnotationVersionDocument annotation = annotations.get(
                         law.getCurrentAnnotationVersionId());
-                if (annotation == null || !law.getId().equals(annotation.getLawId())) {
-                    throw dataInconsistent("法律当前正式标注版本引用无效");
+                if (annotation == null
+                        || !law.getId().equals(annotation.getLawId())
+                        || !Objects.equals(
+                                law.getCurrentContentVersionId(),
+                                annotation.getContentVersionId())) {
+                    continue;
                 }
                 addAnnotationHits(
                         hits,
@@ -381,11 +387,11 @@ public class SearchService {
         if (q == null) {
             throw queryInvalid("搜索关键词不能为空");
         }
-        String normalized = q.strip();
+        String normalized = COMMON_TEXT_WHITESPACE.matcher(q).replaceAll(" ").strip();
         int length = normalized.codePointCount(0, normalized.length());
         boolean containsControl = normalized.codePoints().anyMatch(Character::isISOControl);
         if (length < 1 || length > MAX_QUERY_LENGTH || containsControl) {
-            throw queryInvalid("搜索关键词须为1至100个字符且不得包含控制字符或换行");
+            throw queryInvalid("搜索关键词须为1至100个字符且不得包含非法控制字符");
         }
         if (scope == null) {
             throw queryInvalid("搜索范围不能为空");

@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +61,7 @@ class SearchPersistenceIntegrationTests {
     private static AnnotationVersionRepository annotationVersionRepository;
     private static TaskRepository taskRepository;
     private static TaskDraftRepository taskDraftRepository;
+    private static SearchRepository searchRepository;
     private static SearchService service;
 
     @BeforeAll
@@ -73,8 +75,9 @@ class SearchPersistenceIntegrationTests {
         annotationVersionRepository = factory.getRepository(AnnotationVersionRepository.class);
         taskRepository = factory.getRepository(TaskRepository.class);
         taskDraftRepository = factory.getRepository(TaskDraftRepository.class);
+        searchRepository = new SearchRepository(mongoTemplate);
         service = new SearchService(
-                new SearchRepository(mongoTemplate),
+                searchRepository,
                 contentVersionRepository,
                 annotationVersionRepository,
                 taskRepository,
@@ -98,12 +101,18 @@ class SearchPersistenceIntegrationTests {
         contentVersionRepository.insert(version(
                 "content-old", "law-1", "任务绑定旧正文", 1));
         contentVersionRepository.insert(version(
-                "content-current", "law-1", "当前新正文.含字面点号", 2));
+                "content-current",
+                "law-1",
+                "NEW_CONTENT_ONLY 当前新正文.字面符号 * [ ( + ? 行政机关 应当 依法 处理",
+                2));
         contentVersionRepository.insert(version(
                 "content-deleted", "law-deleted", "已删除秘密正文", 1));
 
         annotationVersionRepository.insert(annotation(
-                "annotation-old", "content-old", "历史秘密", "历史法条秘密"));
+                "annotation-old",
+                "content-old",
+                "OLD_ANNOTATION_ONLY",
+                "历史法条秘密"));
         annotationVersionRepository.insert(annotation(
                 "annotation-current", "content-current", "当前正式摘要", "当前正式备注"));
 
@@ -141,6 +150,18 @@ class SearchPersistenceIntegrationTests {
     @Test
     void persistedAdminSearchExcludesHistoricalADeletedLawAndTaskDraft() {
         assertThat(service.searchLaws(
+                "当前有效法律", SearchScope.LAW_TEXT, 0, 10).items()).singleElement()
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("law.name"));
+        assertThat(service.searchLaws(
+                "制定机关", SearchScope.LAW_TEXT, 0, 10).items()).singleElement()
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("law.issuingAuthority"));
+        assertThat(service.searchLaws(
+                "第一章", SearchScope.LAW_TEXT, 0, 10).items()).singleElement()
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("structure.title"));
+        assertThat(service.searchLaws(
+                "第一条", SearchScope.LAW_TEXT, 0, 10).items()).singleElement()
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("article.number"));
+        assertThat(service.searchLaws(
                 "当前新正文", SearchScope.ALL, 0, 10).items()).singleElement()
                 .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("article.body"));
         assertThat(service.searchLaws(
@@ -151,14 +172,109 @@ class SearchPersistenceIntegrationTests {
                 "当前正式备注", SearchScope.ALL, 0, 10).items()).singleElement()
                 .satisfies(hit -> assertThat(hit.hitField())
                         .isEqualTo("articleAnnotation.annotationNote"));
+        assertThat(service.searchLaws(
+                "权利义务类", SearchScope.ANNOTATION, 0, 10).items()).singleElement()
+                .satisfies(hit -> assertThat(hit.hitField())
+                        .isEqualTo("articleAnnotation.itemType"));
         assertThat(service.searchLaws("历史秘密", SearchScope.ALL, 0, 10).items()).isEmpty();
         assertThat(service.searchLaws("草稿秘密", SearchScope.ALL, 0, 10).items()).isEmpty();
         assertThat(service.searchLaws("已删除秘密", SearchScope.ALL, 0, 10).items()).isEmpty();
 
-        assertThat(service.searchLaws(".", SearchScope.LAW_TEXT, 0, 10).items())
+        for (String literal : List.of(".", "*", "[", "(", "+", "?")) {
+            assertThat(service.searchLaws(
+                    literal, SearchScope.LAW_TEXT, 0, 10).items())
+                    .singleElement()
+                    .satisfies(hit -> assertThat(hit.snippet().substring(
+                            hit.highlightStart(), hit.highlightEnd())).isEqualTo(literal));
+        }
+        assertThat(service.searchLaws(
+                " 行政机关\r\n应当  依法\t处理 ",
+                SearchScope.LAW_TEXT,
+                0,
+                10).items()).singleElement();
+    }
+
+    @Test
+    void persistedMongoAggregationFiltersLawTextAndAnnotationCandidates() {
+        Pattern textPattern = Pattern.compile(Pattern.quote("NEW_CONTENT_ONLY"));
+        assertThat(searchRepository.findVisibleLawsMatching(
+                textPattern, SearchScope.LAW_TEXT))
+                .extracting(LawDocument::getId)
+                .containsExactly("law-1");
+
+        Pattern annotationPattern = Pattern.compile(Pattern.quote("当前正式摘要"));
+        assertThat(searchRepository.findVisibleLawsMatching(
+                annotationPattern, SearchScope.ANNOTATION))
+                .extracting(LawDocument::getId)
+                .containsExactly("law-1");
+    }
+
+    @Test
+    void persistedSemanticMismatchHidesOldAWithoutBlockingCurrentC() {
+        lawRepository.save(law(
+                "law-1",
+                "当前有效法律",
+                "content-current",
+                "annotation-old",
+                true));
+
+        assertThat(service.searchLaws(
+                "OLD_ANNOTATION_ONLY", SearchScope.ANNOTATION, 0, 10).items()).isEmpty();
+        assertThat(service.searchLaws(
+                "OLD_ANNOTATION_ONLY", SearchScope.ALL, 0, 10).items()).isEmpty();
+        assertThat(service.searchLaws(
+                "NEW_CONTENT_ONLY", SearchScope.LAW_TEXT, 0, 10).items())
                 .singleElement()
-                .satisfies(hit -> assertThat(hit.snippet().substring(
-                        hit.highlightStart(), hit.highlightEnd())).isEqualTo("."));
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("article.body"));
+        assertThat(service.searchLaws(
+                "NEW_CONTENT_ONLY", SearchScope.ALL, 0, 10).items())
+                .singleElement()
+                .satisfies(hit -> assertThat(hit.hitField()).isEqualTo("article.body"));
+    }
+
+    @Test
+    void persistedAnnotationOnlyRevisionCanSearchNewAOnUnchangedC() {
+        annotationVersionRepository.insert(annotation(
+                "annotation-revised",
+                "content-current",
+                "ANNOTATION_ONLY_A2",
+                "修订后法条备注"));
+        lawRepository.save(law(
+                "law-1",
+                "当前有效法律",
+                "content-current",
+                "annotation-revised",
+                false));
+
+        assertThat(service.searchLaws(
+                "ANNOTATION_ONLY_A2", SearchScope.ANNOTATION, 0, 10).items())
+                .singleElement()
+                .satisfies(hit -> assertThat(hit.hitField())
+                        .isEqualTo("overallAnnotation.summary"));
+        assertThat(service.searchLaws(
+                "OLD_ANNOTATION_ONLY", SearchScope.ANNOTATION, 0, 10).items()).isEmpty();
+    }
+
+    @Test
+    void persistedAllSearchKeepsUnannotatedLawTextAndStablePagination() {
+        contentVersionRepository.insert(version(
+                "content-page-2", "law-2", "PAGED_MATCH", 1));
+        contentVersionRepository.insert(version(
+                "content-page-3", "law-3", "PAGED_MATCH", 1));
+        lawRepository.save(law(
+                "law-2", "分页法律二", "content-page-2", null, false));
+        lawRepository.save(law(
+                "law-3", "分页法律三", "content-page-3", null, false));
+
+        var first = service.searchLaws("PAGED_MATCH", SearchScope.ALL, 0, 1);
+        var second = service.searchLaws("PAGED_MATCH", SearchScope.ALL, 1, 1);
+
+        assertThat(first.totalElements()).isEqualTo(2);
+        assertThat(first.totalPages()).isEqualTo(2);
+        assertThat(first.items()).singleElement()
+                .extracting(hit -> hit.lawId()).isEqualTo("law-3");
+        assertThat(second.items()).singleElement()
+                .extracting(hit -> hit.lawId()).isEqualTo("law-2");
     }
 
     @Test
@@ -209,7 +325,7 @@ class SearchPersistenceIntegrationTests {
         return new AnnotationVersionDocument(
                 id,
                 "law-1",
-                id.equals("annotation-old") ? 1 : 2,
+                id.equals("annotation-old") ? 1 : id.equals("annotation-current") ? 2 : 3,
                 contentVersionId,
                 new OverallDraftValues("行政法", "正式关键词", summary, null),
                 Map.of("article-1", new ArticleDraftValues(
