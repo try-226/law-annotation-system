@@ -4,13 +4,14 @@ import { onMounted, ref, watch } from 'vue'
 import type { PageResponse, User } from '../../api/types'
 import { cancelTask, listTasks } from '../../api/tasks'
 import { listUsers } from '../../api/users'
-import type { TaskListItem, TaskState, TaskType } from '../../types/task'
+import type { TaskDetail, TaskListItem, TaskState, TaskType } from '../../types/task'
 import { formatTaskDateTime, isCancelableTaskState, TASK_STATE_LABELS, TASK_TYPE_LABELS } from '../../types/task'
 import { notify } from '../../state/notifications'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
 import { trimText, validateSearch } from '../../utils/validation'
 import CancelTaskModal from './CancelTaskModal.vue'
 import CreateOrdinaryTaskModal from './CreateOrdinaryTaskModal.vue'
+import CreateRevisionTaskModal from '../revision/CreateRevisionTaskModal.vue'
 import TaskStatusBadge from './TaskStatusBadge.vue'
 
 const PAGE_SIZE = 10
@@ -28,7 +29,8 @@ let requestSequence = 0
 
 const annotators = ref<User[]>([])
 const annotatorsError = ref('')
-const createOpen = ref(false)
+const ordinaryCreateOpen = ref(false)
+const revisionCreateOpen = ref(false)
 const cancelTarget = ref<TaskListItem | null>(null)
 const cancelBusy = ref(false)
 const cancelError = ref('')
@@ -130,11 +132,21 @@ async function submitCancel(reason: string): Promise<void> {
   }
 }
 
-async function handleCreated(): Promise<void> {
-  createOpen.value = false
+async function handleOrdinaryCreated(): Promise<void> {
+  ordinaryCreateOpen.value = false
   currentPage.value = 1
   await loadTasks()
   notify('普通任务创建成功', 'success')
+}
+
+async function handleRevisionCreated(task: TaskDetail): Promise<void> {
+  revisionCreateOpen.value = false
+  currentPage.value = 1
+  await loadTasks()
+  const scope = task.revisionScope
+  const modeLabel = scope?.mode === 'CONTENT_CHANGE' ? '正文变化型' : '标注修正型'
+  const scopeCount = scope?.articleIds.length ?? 0
+  notify(`修订任务创建成功（${modeLabel}，范围法条 ${scopeCount} 条）`, 'success')
 }
 
 watch([typeFilter, stateFilter, annotatorFilter], () => {
@@ -151,8 +163,11 @@ onMounted(() => {
 <template>
   <div class="task-page">
     <header class="page-heading heading-row">
-      <div><h1>任务管理</h1><p>查看和管理普通标注任务</p></div>
-      <button class="button button--primary" type="button" @click="createOpen = true">＋ 创建普通任务</button>
+      <div><h1>任务管理</h1><p>查看和管理普通标注与修订任务</p></div>
+      <div class="task-create-actions">
+        <button class="button" type="button" @click="ordinaryCreateOpen = true">＋ 创建普通任务</button>
+        <button class="button button--primary" type="button" @click="revisionCreateOpen = true">＋ 创建修订任务</button>
+      </div>
     </header>
 
     <section class="panel task-filters">
@@ -160,7 +175,7 @@ onMounted(() => {
         <input v-model="searchInput" class="input" maxlength="100" placeholder="按任务名称搜索" aria-label="搜索任务" />
         <button class="button button--primary" type="submit">搜索</button>
       </form>
-      <div class="filter-item"><label for="task-type-filter">任务类型</label><select id="task-type-filter" v-model="typeFilter" class="select"><option value="">全部类型</option><option value="ORDINARY">普通标注</option></select></div>
+      <div class="filter-item"><label for="task-type-filter">任务类型</label><select id="task-type-filter" v-model="typeFilter" class="select"><option value="">全部类型</option><option v-for="(label, type) in TASK_TYPE_LABELS" :key="type" :value="type">{{ label }}</option></select></div>
       <div class="filter-item"><label for="task-state-filter">任务状态</label><select id="task-state-filter" v-model="stateFilter" class="select"><option value="">全部状态</option><option v-for="(label, state) in TASK_STATE_LABELS" :key="state" :value="state">{{ label }}</option></select></div>
       <div class="filter-item"><label for="task-annotator-filter">标注员</label><select id="task-annotator-filter" v-model="annotatorFilter" class="select"><option value="">全部标注员</option><option v-for="annotator in annotators" :key="annotator.id" :value="annotator.id">{{ annotator.name }}{{ annotator.enabled ? '' : '（已停用）' }}</option></select></div>
       <p v-if="searchError" class="field-error filter-error">{{ searchError }}</p>
@@ -198,7 +213,8 @@ onMounted(() => {
       </footer>
     </section>
 
-    <CreateOrdinaryTaskModal :open="createOpen" @close="createOpen = false" @created="handleCreated" />
+    <CreateOrdinaryTaskModal :open="ordinaryCreateOpen" @close="ordinaryCreateOpen = false" @created="handleOrdinaryCreated" />
+    <CreateRevisionTaskModal :open="revisionCreateOpen" @close="revisionCreateOpen = false" @created="handleRevisionCreated" />
     <CancelTaskModal :open="Boolean(cancelTarget)" :task="cancelTarget" :busy="cancelBusy" :server-error="cancelError" @close="closeCancel" @confirm="submitCancel" />
   </div>
 </template>

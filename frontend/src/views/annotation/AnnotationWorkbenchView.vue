@@ -8,6 +8,7 @@ import {
   getTaskDraft,
   saveArticleDraft,
   saveOverallDraft,
+  submitTaskForRereview,
   submitTaskForReview,
 } from '../../api/annotation'
 import { getTask, startTask } from '../../api/tasks'
@@ -21,6 +22,7 @@ import type {
   TaskDraftResponse,
 } from '../../types/annotation'
 import type { TaskArticleSnapshot, TaskDetail } from '../../types/task'
+import { workbenchTitle } from '../../types/task'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
 import TaskStatusBadge from '../task/TaskStatusBadge.vue'
 import AnnotationStructureTree from './AnnotationStructureTree.vue'
@@ -32,12 +34,14 @@ import UnsavedChangesModal from './UnsavedChangesModal.vue'
 import {
   createArticleForm,
   createOverallForm,
+  annotationSubmissionAction,
+  canEditAnnotationTarget,
   decideAnnotationNavigation,
   formsEqual,
   isArticleDraftComplete,
-  isTargetEditable,
   parseAnnotationLocator,
   reconcileSavedForm,
+  reviewIssueTarget,
   sameWorkbenchSession,
   sameTarget,
   selectInitialTarget,
@@ -100,8 +104,25 @@ const articleCompletion = computed<Record<string, boolean>>(() => {
   ]))
 })
 
-const currentEditable = computed(() => Boolean(draft.value && isTargetEditable(selected.value, draft.value)))
-const canSubmit = computed(() => Boolean(draft.value?.editableScope.overallEditable))
+const currentEditable = computed(() => Boolean(
+  task.value && draft.value && canEditAnnotationTarget(task.value, selected.value, draft.value),
+))
+const submissionAction = computed(() => task.value && draft.value
+  ? annotationSubmissionAction(task.value, draft.value)
+  : null)
+const canSubmit = computed(() => submissionAction.value !== null)
+const submitTitle = computed(() => submissionAction.value === 'rereview'
+  ? '提交复审'
+  : task.value?.taskType === 'REVISION' ? '提交修订审核' : '提交整部任务')
+const submitDescription = computed(() => {
+  if (submissionAction.value === 'rereview') {
+    return '提交前会保存当前修改，并由后端校验所有驳回问题项是否已经重新保存。提交成功后当前工作台转为只读。'
+  }
+  if (task.value?.taskType === 'REVISION') {
+    return '提交前会保存当前修改，并由后端按服务器修订范围校验。本操作支持仅法条范围或无可编辑法条的合法删除场景。'
+  }
+  return '提交时会先保存当前修改，再由后端重新校验整体信息和全部法条。提交成功后不可撤回。'
+})
 const dirty = computed(() => selected.value.kind === 'overall'
   ? !formsEqual(overallBaseline.value, overallForm.value)
   : !formsEqual(articleBaseline.value, articleForm.value))
@@ -259,12 +280,13 @@ async function handleConflict(operation: WorkbenchSessionIdentity): Promise<void
     if (!operationStillBelongsToTask(operation)) return
     task.value = latestTask
     draft.value = latestDraft
-    if (isTargetEditable(selected.value, latestDraft)) {
+    if (canEditAnnotationTarget(latestTask, selected.value, latestDraft)) {
       syncSelectedForms(true)
       if (selected.value.kind === 'overall') overallForm.value = latestOverall
       else articleForm.value = latestArticle
       notify('服务器状态已更新，本地未保存输入仍保留，请检查后重试。', 'info')
     } else {
+      selected.value = selectInitialTarget(latestTask, latestDraft)
       syncSelectedForms(false)
       notify('任务已不可编辑，刚才的本地修改没有保存成功；当前显示服务器已保存内容。', 'error')
     }
@@ -435,7 +457,11 @@ async function confirmSubmit(): Promise<void> {
   submitLocators.value = []
   try {
     if (dirty.value && !(await saveCurrent())) return
-    const result = await submitTaskForReview(operation.taskId)
+    const action = submissionAction.value
+    if (!action) return
+    const result = action === 'rereview'
+      ? await submitTaskForRereview(operation.taskId)
+      : await submitTaskForReview(operation.taskId)
     if (!operationStillBelongsToTask(operation) || !task.value || !draft.value) return
     task.value = { ...task.value, taskState: result.taskState }
     draft.value = {
@@ -446,7 +472,9 @@ async function confirmSubmit(): Promise<void> {
     syncSelectedForms()
     submitOpen.value = false
     submitTaskId.value = ''
-    notify('任务已提交审核，当前工作台已转为只读', 'success')
+    notify(action === 'rereview'
+      ? '任务已提交复审，当前工作台已转为只读'
+      : '任务已提交审核，当前工作台已转为只读', 'success')
     try {
       const [latestTask, latestDraft] = await Promise.all([getTask(operation.taskId), getTaskDraft(operation.taskId)])
       if (!operationStillBelongsToTask(operation)) return
@@ -483,6 +511,18 @@ function openSubmitModal(): void {
   submitError.value = ''
   submitLocators.value = []
   submitOpen.value = true
+}
+
+function requestReviewIssue(issue: TaskDraftResponse['reviewIssues'][number]): void {
+  const target = reviewIssueTarget(issue.locator)
+  if (target) requestTarget(target)
+}
+
+function reviewIssueLabel(issue: TaskDraftResponse['reviewIssues'][number]): string {
+  if (issue.locator.type === 'OVERALL' || !issue.locator.articleId) return '整体信息'
+  return task.value?.contentVersionSnapshot.articles
+    .find((article) => article.articleId === issue.locator.articleId)?.number
+    ?? issue.locator.articleId
 }
 
 async function locateSubmissionError(locator: SubmissionLocator): Promise<void> {
@@ -538,21 +578,29 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 <template>
   <div class="annotation-page">
     <RouterLink class="annotation-back" :to="{ name: 'my-tasks' }">← 返回我的任务</RouterLink>
-    <section v-if="loading" class="panel annotation-state"><span class="spinner" />正在加载标注工作台…</section>
+    <section v-if="loading" class="panel annotation-state"><span class="spinner" />正在加载工作台…</section>
     <section v-else-if="loadError" class="panel annotation-state annotation-state--error"><p>{{ loadError }}</p><button class="button" type="button" @click="loadWorkbench(true)">重新加载</button></section>
     <template v-else-if="task && draft">
       <header class="annotation-page-heading">
-        <div><h1>{{ task.taskName }}</h1><p>{{ task.lawBaseInfoSnapshot.name }} · {{ task.contentVersionSnapshot.articles.length }} 条法条</p></div>
+        <div><small class="annotation-workbench-kind">{{ workbenchTitle(task.taskType) }}</small><h1>{{ task.taskName }}</h1><p>{{ task.lawBaseInfoSnapshot.name }} · {{ task.contentVersionSnapshot.articles.length }} 条法条</p></div>
         <TaskStatusBadge :state="task.taskState" />
       </header>
 
       <section v-if="task.taskState === 'PENDING_ANNOTATION'" class="panel annotation-pending">
-        <div><h2>当前任务尚未开始</h2><p>只有你明确点击开始后，任务才会进入标注中状态。直接访问工作台不会自动开始任务。</p></div>
-        <button class="button button--primary" type="button" :disabled="starting" @click="startPendingTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : '开始标注' }}</button>
+        <div><h2>当前任务尚未开始</h2><p>只有你明确点击开始后，任务才会进入{{ task.taskType === 'REVISION' ? '修订中' : '标注中' }}状态。直接访问工作台不会自动开始任务。</p></div>
+        <button class="button button--primary" type="button" :disabled="starting" @click="startPendingTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : (task.taskType === 'REVISION' ? '开始修订' : '开始标注') }}</button>
       </section>
       <template v-else>
-        <p v-if="task.taskState === 'PARTIALLY_REJECTED'" class="annotation-scope-note">当前部分驳回任务暂以只读方式展示；问题项修改能力将在后续流程开放。</p>
-        <p v-else-if="!currentEditable" class="annotation-readonly-note">当前任务状态或服务器可编辑范围不允许修改，工作台以只读方式展示已保存内容。</p>
+        <p v-if="task.taskType === 'REVISION' && !task.revisionScope" class="annotation-readonly-note">服务器未返回修订范围，当前工作台以只读方式展示。</p>
+        <p v-else-if="task.taskType === 'REVISION' && task.taskState === 'PARTIALLY_REJECTED'" class="annotation-scope-note">仅服务器最新 editableScope 中的驳回问题项可修改；原始 revisionScope 仅用于展示任务范围。</p>
+        <p v-else-if="task.taskType === 'REVISION'" class="annotation-scope-note">修订范围由服务器确定：{{ task.revisionScope?.overall ? '包含整体信息' : '不含整体信息' }}，{{ task.revisionScope?.articleIds.length ?? 0 }} 条范围法条，其中 {{ task.revisionScope?.mandatoryArticleIds.length ?? 0 }} 条为正文变化必须重新标注。</p>
+        <p v-if="!currentEditable" class="annotation-readonly-note">当前选中项不在服务器最新 editableScope 中，仍可查看，但不能保存或清空。</p>
+        <section v-if="draft.reviewIssues.length" class="panel annotation-review-issues">
+          <header><h2>审核问题</h2><span>{{ draft.reviewIssues.length }} 项</span></header>
+          <button v-for="issue in draft.reviewIssues" :key="`${issue.reviewRoundId}:${issue.locator.type}:${issue.locator.articleId ?? ''}`" type="button" @click="requestReviewIssue(issue)">
+            <strong>{{ reviewIssueLabel(issue) }}</strong><span>{{ issue.reason }}</span><small>定位查看 →</small>
+          </button>
+        </section>
         <div class="annotation-workbench">
           <AnnotationStructureTree
             :task="task" :draft="draft" :selected="selected" :article-completion="articleCompletion"
@@ -570,7 +618,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
               <button v-if="currentEditable" class="button" type="button" :disabled="saving || clearing || submitting" @click="saveCurrent"><span v-if="saving" class="spinner" />保存草稿</button>
               <button v-if="currentEditable && nextTarget" class="button button--primary" type="button" :disabled="saving || clearing || submitting" @click="saveAndMove(nextTarget)">保存并下一项</button>
               <button v-else-if="nextTarget" class="button" type="button" @click="requestTarget(nextTarget)">下一项</button>
-              <button v-if="canSubmit" class="button" type="button" :disabled="saving || clearing || submitting" @click="openSubmitModal">提交整部任务</button>
+              <button v-if="canSubmit" class="button" type="button" :disabled="saving || clearing || submitting" @click="openSubmitModal">{{ submissionAction === 'rereview' ? '提交复审' : (task.taskType === 'REVISION' ? '提交修订审核' : '提交整部任务') }}</button>
             </footer>
           </main>
         </div>
@@ -578,7 +626,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 
       <UnsavedChangesModal :open="Boolean(unsavedMode)" :mode="unsavedMode || 'switch'" :busy="saving" @close="unsavedMode = null; pendingTarget = null; pendingFocusFieldKey = ''; pendingLeavePath = ''" @save="saveUnsavedAction" @discard="discardUnsavedAction" />
       <ClearAnnotationModal :open="clearOpen" :target-label="targetLabel" :busy="clearing" @close="clearOpen = false; clearTaskId = ''" @confirm="confirmClear" />
-      <SubmitAnnotationModal :open="submitOpen" :busy="submitting" :locators="submitLocators" :error="submitError" @close="submitOpen = false; submitTaskId = ''; submitLocators = []; submitError = ''" @confirm="confirmSubmit" @locate="locateSubmissionError" />
+      <SubmitAnnotationModal :open="submitOpen" :busy="submitting" :locators="submitLocators" :error="submitError" :title="submitTitle" :description="submitDescription" @close="submitOpen = false; submitTaskId = ''; submitLocators = []; submitError = ''" @confirm="confirmSubmit" @locate="locateSubmissionError" />
     </template>
   </div>
 </template>

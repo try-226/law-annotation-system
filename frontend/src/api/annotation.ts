@@ -7,6 +7,7 @@ import type {
 import { csrfRequest } from './csrf'
 import request from './request'
 import type { ApiResponse } from './types'
+import { annotationSubmissionPath } from './annotationPath'
 
 export async function getTaskDraft(taskId: string): Promise<TaskDraftResponse> {
   const { data } = await request.get<ApiResponse<TaskDraftResponse>>(`/tasks/${taskId}/draft`)
@@ -53,7 +54,14 @@ export async function clearArticleDraft(
 
 export async function submitTaskForReview(taskId: string): Promise<SubmitReviewResult> {
   const { data } = await csrfRequest<ApiResponse<SubmitReviewResult>>({
-    method: 'POST', url: `/tasks/${taskId}/submit-review`,
+    method: 'POST', url: annotationSubmissionPath(taskId, 'review'),
+  })
+  return data.data
+}
+
+export async function submitTaskForRereview(taskId: string): Promise<SubmitReviewResult> {
+  const { data } = await csrfRequest<ApiResponse<SubmitReviewResult>>({
+    method: 'POST', url: annotationSubmissionPath(taskId, 'rereview'),
   })
   return data.data
 }

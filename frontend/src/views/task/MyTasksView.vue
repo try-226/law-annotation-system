@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import type { PageResponse } from '../../api/types'
 import { listTasks, startTask } from '../../api/tasks'
 import type { TaskListItem, TaskState } from '../../types/task'
-import { ANNOTATOR_TASK_ACTION_LABELS, formatTaskDateTime, TASK_STATE_LABELS, TASK_TYPE_LABELS } from '../../types/task'
+import { annotatorTaskActionLabel, formatTaskDateTime, TASK_STATE_LABELS, TASK_TYPE_LABELS } from '../../types/task'
 import { notify } from '../../state/notifications'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
 import { trimText, validateSearch } from '../../utils/validation'
@@ -26,11 +26,6 @@ let requestSequence = 0
 
 function taskErrorMessage(error: unknown, fallback: string): string {
   return parseFailure(error).userMessage || safeErrorMessage(error, fallback)
-}
-
-function workbenchActionLabel(state: TaskState): string {
-  // PR13 尚无部分驳回问题项的 editableScope；此处只局部显示“查看”，不改变长期业务语义。
-  return state === 'PARTIALLY_REJECTED' ? '查看' : ANNOTATOR_TASK_ACTION_LABELS[state]
 }
 
 async function loadTasks(): Promise<void> {
@@ -91,7 +86,7 @@ onMounted(loadTasks)
 
 <template>
   <div class="task-page">
-    <header class="page-heading"><h1>我的任务</h1><p>查看并处理分配给你的标注任务</p></header>
+    <header class="page-heading"><h1>我的任务</h1><p>查看并处理分配给你的标注与修订任务</p></header>
 
     <section class="panel task-filters">
       <form class="task-search" @submit.prevent="applySearch"><input v-model="searchInput" class="input" maxlength="100" placeholder="按任务名称搜索" aria-label="搜索我的任务" /><button class="button button--primary" type="submit">搜索</button></form>
@@ -114,8 +109,8 @@ onMounted(loadTasks)
               <td><strong>{{ task.taskName }}</strong><small v-if="task.remark" class="secondary-copy">有任务备注</small></td><td>{{ TASK_TYPE_LABELS[task.taskType] }}</td><td>{{ task.lawName }}</td>
               <td><TaskStatusBadge :state="task.taskState" /></td><td>{{ formatTaskDateTime(task.createdAt) }}</td>
               <td class="actions">
-                <button v-if="task.taskState === 'PENDING_ANNOTATION'" class="button button--text" type="button" :disabled="Boolean(startingTaskId)" @click="start(task)"><span v-if="startingTaskId === task.taskId" class="spinner" />{{ startingTaskId === task.taskId ? '开始中…' : '开始标注' }}</button>
-                <RouterLink v-else class="button button--text" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ workbenchActionLabel(task.taskState) }}</RouterLink>
+                <button v-if="task.taskState === 'PENDING_ANNOTATION'" class="button button--text" type="button" :disabled="Boolean(startingTaskId)" @click="start(task)"><span v-if="startingTaskId === task.taskId" class="spinner" />{{ startingTaskId === task.taskId ? '开始中…' : annotatorTaskActionLabel(task.taskType, task.taskState) }}</button>
+                <RouterLink v-else class="button button--text" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ annotatorTaskActionLabel(task.taskType, task.taskState) }}</RouterLink>
               </td>
             </tr>
           </tbody>

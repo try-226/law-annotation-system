@@ -1,4 +1,5 @@
 import type { ErrorLocator } from '../api/types'
+import type { ReviewItemLocator } from './review'
 import type { TaskState } from './task'
 
 export type ItemType =
@@ -38,6 +39,12 @@ export interface AnnotationProgress {
   overallCompleted: boolean
 }
 
+export interface ReviewIssueFeedback {
+  reviewRoundId: string
+  locator: ReviewItemLocator
+  reason: string
+}
+
 export interface TaskDraftResponse {
   taskId: string
   taskState: TaskState
@@ -48,6 +55,7 @@ export interface TaskDraftResponse {
   revision: number
   updatedAt: string | null
   progress: AnnotationProgress
+  reviewIssues: ReviewIssueFeedback[]
 }
 
 export interface SaveOverallDraftPayload {

@@ -7,7 +7,13 @@ import type {
   ParsedAnnotationLocator,
   TaskDraftResponse,
 } from '../../types/annotation'
-import type { TaskDetail, TaskFieldConfigSnapshotItem } from '../../types/task'
+import type {
+  TaskArticleSnapshot,
+  TaskDetail,
+  TaskFieldConfigSnapshotItem,
+  TaskStructureNodeSnapshot,
+} from '../../types/task'
+import type { ReviewItemLocator } from '../../types/review'
 
 export function createOverallForm(values: OverallDraftValues | null): OverallDraftForm {
   return {
@@ -82,9 +88,19 @@ export function isArticleDraftComplete(
 }
 
 export function selectInitialTarget(
-  task: Pick<TaskDetail, 'taskState' | 'contentVersionSnapshot' | 'fieldConfigSnapshot'>,
-  draft: Pick<TaskDraftResponse, 'articleDrafts' | 'progress' | 'revision' | 'updatedAt'>,
+  task: Pick<TaskDetail, 'taskType' | 'taskState' | 'contentVersionSnapshot' | 'fieldConfigSnapshot' | 'structureSnapshot'>,
+  draft: Pick<TaskDraftResponse, 'articleDrafts' | 'progress' | 'editableScope' | 'revision' | 'updatedAt'>,
 ): AnnotationTarget {
+  if (task.taskType === 'REVISION') {
+    if (draft.editableScope.overallEditable) return { kind: 'overall' }
+    const editable = new Set(draft.editableScope.editableArticleIds)
+    const firstEditable = orderedTaskArticles(task)
+      .find((article) => editable.has(article.articleId))
+    return firstEditable
+      ? { kind: 'article', articleId: firstEditable.articleId }
+      : { kind: 'overall' }
+  }
+
   const hasServerDraft = draft.revision > 0 || draft.updatedAt !== null
   if (task.taskState !== 'ANNOTATING' || !hasServerDraft) {
     return { kind: 'overall' }
@@ -102,10 +118,66 @@ export function selectInitialTarget(
     : { kind: 'overall' }
 }
 
+export function orderedTaskArticles(
+  task: Pick<TaskDetail, 'contentVersionSnapshot' | 'structureSnapshot'>,
+): TaskDetail['contentVersionSnapshot']['articles'] {
+  return orderedTaskStructureRows(task)
+    .filter((row): row is Extract<AnnotationStructureRow, { kind: 'article' }> => row.kind === 'article')
+    .map((row) => row.article)
+}
+
+export type AnnotationStructureRow =
+  | { kind: 'node'; key: string; node: TaskStructureNodeSnapshot; depth: number }
+  | { kind: 'article'; key: string; article: TaskArticleSnapshot; depth: number }
+
+export function orderedTaskStructureRows(
+  task: Pick<TaskDetail, 'contentVersionSnapshot' | 'structureSnapshot'>,
+): AnnotationStructureRow[] {
+  const articles = task.contentVersionSnapshot.articles
+  const articleById = new Map(articles.map((article) => [article.articleId, article]))
+  const children = new Map<string | null, TaskDetail['structureSnapshot']>()
+  for (const node of task.structureSnapshot) {
+    const siblings = children.get(node.parentNodeId) ?? []
+    siblings.push(node)
+    children.set(node.parentNodeId, siblings)
+  }
+  const sortedNodes = (nodes: TaskDetail['structureSnapshot']) => [...nodes]
+    .sort((left, right) => left.order - right.order)
+  const ordered: AnnotationStructureRow[] = []
+  const included = new Set<string>()
+  const visit = (node: TaskDetail['structureSnapshot'][number], depth: number): void => {
+    ordered.push({ kind: 'node', key: `node:${node.nodeId}`, node, depth })
+    for (const articleId of node.articleIds) {
+      const article = articleById.get(articleId)
+      if (!article || included.has(articleId)) continue
+      included.add(articleId)
+      ordered.push({ kind: 'article', key: `article:${articleId}`, article, depth: depth + 1 })
+    }
+    for (const child of sortedNodes(children.get(node.nodeId) ?? [])) visit(child, depth + 1)
+  }
+  for (const root of sortedNodes(children.get(null) ?? [])) visit(root, 0)
+  for (const article of [...articles].sort((left, right) => left.order - right.order)) {
+    if (!included.has(article.articleId)) {
+      ordered.push({
+        kind: 'article', key: `article:${article.articleId}`, article, depth: 0,
+      })
+    }
+  }
+  return ordered
+}
+
 export function parseAnnotationLocator(path: string): ParsedAnnotationLocator | null {
+  if (path === 'overall') return { target: { kind: 'overall' }, fieldKey: '' }
   const overallMatch = /^overall\.([A-Za-z][A-Za-z0-9]*)$/.exec(path)
   if (overallMatch) {
     return { target: { kind: 'overall' }, fieldKey: overallMatch[1] }
+  }
+  const articleScopeMatch = /^articles\.([^.]+)$/.exec(path)
+  if (articleScopeMatch) {
+    return {
+      target: { kind: 'article', articleId: articleScopeMatch[1] },
+      fieldKey: '',
+    }
   }
   const articleMatch = /^articles\.([^.]+)\.([A-Za-z][A-Za-z0-9]*)$/.exec(path)
   if (articleMatch) {
@@ -115,6 +187,11 @@ export function parseAnnotationLocator(path: string): ParsedAnnotationLocator | 
     }
   }
   return null
+}
+
+export function reviewIssueTarget(locator: ReviewItemLocator): AnnotationTarget | null {
+  if (locator.type === 'OVERALL') return { kind: 'overall' }
+  return locator.articleId ? { kind: 'article', articleId: locator.articleId } : null
 }
 
 export function targetKey(target: AnnotationTarget): string {
@@ -142,6 +219,38 @@ export function isTargetEditable(target: AnnotationTarget, draft: TaskDraftRespo
   return target.kind === 'overall'
     ? draft.editableScope.overallEditable
     : draft.editableScope.editableArticleIds.includes(target.articleId)
+}
+
+export function canEditAnnotationTarget(
+  task: Pick<TaskDetail, 'taskType' | 'taskState' | 'revisionScope'>,
+  target: AnnotationTarget,
+  draft: Pick<TaskDraftResponse, 'editableScope'>,
+): boolean {
+  const stateAllowsEditing = task.taskType === 'REVISION'
+    ? task.revisionScope !== null
+      && (task.taskState === 'ANNOTATING' || task.taskState === 'PARTIALLY_REJECTED')
+    : task.taskState === 'ANNOTATING'
+  if (!stateAllowsEditing) return false
+  return target.kind === 'overall'
+    ? draft.editableScope.overallEditable
+    : draft.editableScope.editableArticleIds.includes(target.articleId)
+}
+
+export type AnnotationSubmissionAction = 'review' | 'rereview'
+
+export function annotationSubmissionAction(
+  task: Pick<TaskDetail, 'taskType' | 'taskState' | 'revisionScope'>,
+  draft: Pick<TaskDraftResponse, 'editableScope'>,
+): AnnotationSubmissionAction | null {
+  if (task.taskType === 'REVISION') {
+    if (task.revisionScope === null) return null
+    if (task.taskState === 'ANNOTATING') return 'review'
+    if (task.taskState === 'PARTIALLY_REJECTED') return 'rereview'
+    return null
+  }
+  return task.taskState === 'ANNOTATING' && draft.editableScope.overallEditable
+    ? 'review'
+    : null
 }
 
 export function isFieldRequired(

@@ -8,12 +8,8 @@ import {
   type AnnotationTarget,
   type TaskDraftResponse,
 } from '../../types/annotation'
-import type { TaskArticleSnapshot, TaskDetail, TaskStructureNodeSnapshot } from '../../types/task'
-import { sameTarget } from './annotationDraftState'
-
-type TreeRow =
-  | { kind: 'node'; key: string; node: TaskStructureNodeSnapshot; depth: number }
-  | { kind: 'article'; key: string; article: TaskArticleSnapshot; depth: number }
+import type { TaskDetail } from '../../types/task'
+import { canEditAnnotationTarget, orderedTaskStructureRows, sameTarget } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -33,41 +29,26 @@ const emit = defineEmits<{
   page: [page: number]
 }>()
 
-const rows = computed<TreeRow[]>(() => {
-  const nodes = props.task.structureSnapshot
-  const articleById = new Map(props.task.contentVersionSnapshot.articles.map((article) => [article.articleId, article]))
-  const children = new Map<string | null, TaskStructureNodeSnapshot[]>()
-  for (const node of nodes) {
-    const list = children.get(node.parentNodeId) ?? []
-    list.push(node)
-    children.set(node.parentNodeId, list)
+const rows = computed(() => orderedTaskStructureRows(props.task))
+
+function revisionTargetStatus(target: AnnotationTarget): string | null {
+  if (props.task.taskType !== 'REVISION') return null
+  const editable = canEditAnnotationTarget(props.task, target, props.draft)
+  if (target.kind === 'article'
+    && props.task.revisionScope?.mandatoryArticleIds.includes(target.articleId)) {
+    return editable ? '必改·可修改' : '必改·只读'
   }
-  const sortNodes = (items: TaskStructureNodeSnapshot[]) => [...items].sort((left, right) => left.order - right.order)
-  const result: TreeRow[] = []
-  const includedArticles = new Set<string>()
-  const visit = (node: TaskStructureNodeSnapshot, depth: number) => {
-    result.push({ kind: 'node', key: `node:${node.nodeId}`, node, depth })
-    for (const articleId of node.articleIds) {
-      const article = articleById.get(articleId)
-      if (!article || includedArticles.has(articleId)) continue
-      includedArticles.add(articleId)
-      result.push({ kind: 'article', key: `article:${articleId}`, article, depth: depth + 1 })
-    }
-    for (const child of sortNodes(children.get(node.nodeId) ?? [])) visit(child, depth + 1)
-  }
-  for (const root of sortNodes(children.get(null) ?? [])) visit(root, 0)
-  for (const article of [...props.task.contentVersionSnapshot.articles].sort((left, right) => left.order - right.order)) {
-    if (!includedArticles.has(article.articleId)) {
-      result.push({ kind: 'article', key: `article:${article.articleId}`, article, depth: 0 })
-    }
-  }
-  return result
-})
+  if (editable) return '可修改'
+  const inOriginalScope = target.kind === 'overall'
+    ? Boolean(props.task.revisionScope?.overall)
+    : Boolean(props.task.revisionScope?.articleIds.includes(target.articleId))
+  return inOriginalScope ? '范围内只读' : '只读'
+}
 </script>
 
 <template>
   <aside class="annotation-sidebar panel">
-    <header><h2>标注目录</h2><span>草稿版本 {{ draft.revision }}</span></header>
+    <header><h2>{{ task.taskType === 'REVISION' ? '修订目录' : '标注目录' }}</h2><span>草稿版本 {{ draft.revision }}</span></header>
     <form class="annotation-search" @submit.prevent="emit('search')">
       <input :value="searchInput" class="input" maxlength="100" placeholder="搜索当前任务" aria-label="任务内搜索" @input="emit('update:searchInput', ($event.target as HTMLInputElement).value)" />
       <div class="annotation-search-row">
@@ -83,7 +64,7 @@ const rows = computed<TreeRow[]>(() => {
       <div class="annotation-results-heading"><strong>搜索结果</strong><span>{{ searchResult.totalElements }} 项</span></div>
       <p v-if="searchResult.items.length === 0" class="annotation-empty-copy">当前任务中没有匹配内容</p>
       <button v-for="item in searchResult.items" :key="item.key" type="button" class="annotation-search-result" @click="emit('target', item.target)">
-        <strong>{{ item.target.kind === 'overall' ? '整体信息' : item.articleNumber }}</strong>
+        <strong>{{ item.target.kind === 'overall' ? '整体信息' : item.articleNumber }}<em v-if="revisionTargetStatus(item.target)">{{ revisionTargetStatus(item.target) }}</em></strong>
         <small>{{ item.lawName }} · {{ item.structurePath }} · {{ item.fieldLabel }}</small>
         <span><template v-for="(segment, index) in item.segments" :key="index"><mark v-if="segment.highlighted">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></span>
       </button>
@@ -96,20 +77,26 @@ const rows = computed<TreeRow[]>(() => {
 
     <div v-else class="annotation-tree">
       <button type="button" class="annotation-tree-target annotation-overall-target" :class="{ selected: sameTarget(selected, { kind: 'overall' }) }" @click="emit('target', { kind: 'overall' })">
-        <span>整体信息</span><small :class="{ complete: draft.progress.overallCompleted }">{{ draft.progress.overallCompleted ? '✓ 已完成' : '未完成' }}</small>
+        <span>整体信息</span><small v-if="task.taskType === 'REVISION'" :class="{ editable: revisionTargetStatus({ kind: 'overall' }) === '可修改' }">{{ revisionTargetStatus({ kind: 'overall' }) }}</small><small v-else :class="{ complete: draft.progress.overallCompleted }">{{ draft.progress.overallCompleted ? '✓ 已完成' : '未完成' }}</small>
       </button>
       <template v-for="row in rows" :key="row.key">
         <div v-if="row.kind === 'node'" class="annotation-tree-node" :style="{ paddingLeft: `${10 + row.depth * 15}px` }">{{ row.node.title }}</div>
         <button v-else type="button" class="annotation-tree-target" :class="{ selected: sameTarget(selected, { kind: 'article', articleId: row.article.articleId }) }" :style="{ paddingLeft: `${18 + row.depth * 15}px` }" @click="emit('target', { kind: 'article', articleId: row.article.articleId })">
-          <span>{{ row.article.number }}</span><small :class="{ complete: articleCompletion[row.article.articleId] }">{{ articleCompletion[row.article.articleId] ? '✓' : '未完成' }}</small>
+          <span>{{ row.article.number }}</span><small v-if="task.taskType === 'REVISION'" :class="{ mandatory: revisionTargetStatus({ kind: 'article', articleId: row.article.articleId })?.startsWith('必改'), editable: revisionTargetStatus({ kind: 'article', articleId: row.article.articleId }) === '可修改' }">{{ revisionTargetStatus({ kind: 'article', articleId: row.article.articleId }) }}</small><small v-else :class="{ complete: articleCompletion[row.article.articleId] }">{{ articleCompletion[row.article.articleId] ? '✓' : '未完成' }}</small>
         </button>
       </template>
     </div>
 
     <footer class="annotation-progress">
-      <strong>法条进度 {{ draft.progress.filledArticles }} / {{ draft.progress.totalArticles }}</strong>
-      <div class="annotation-progress-track"><span :style="{ width: `${draft.progress.totalArticles ? (draft.progress.filledArticles / draft.progress.totalArticles) * 100 : 0}%` }" /></div>
-      <small>汇总进度来自服务器已保存草稿</small>
+      <template v-if="task.taskType === 'REVISION'">
+        <strong>范围法条 {{ task.revisionScope?.articleIds.length ?? 0 }} 条</strong>
+        <small>当前可编辑 {{ draft.editableScope.editableArticleIds.length }} 条；权限以服务器 editableScope 为准</small>
+      </template>
+      <template v-else>
+        <strong>法条进度 {{ draft.progress.filledArticles }} / {{ draft.progress.totalArticles }}</strong>
+        <div class="annotation-progress-track"><span :style="{ width: `${draft.progress.totalArticles ? (draft.progress.filledArticles / draft.progress.totalArticles) * 100 : 0}%` }" /></div>
+        <small>汇总进度来自服务器已保存草稿</small>
+      </template>
     </footer>
   </aside>
 </template>

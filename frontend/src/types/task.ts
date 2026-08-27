@@ -2,6 +2,15 @@ import type { StructureNodeType, ValidityStatus } from './law'
 
 export type TaskType = 'ORDINARY' | 'REVISION'
 
+export type RevisionMode = 'ANNOTATION_ONLY' | 'CONTENT_CHANGE'
+
+export interface RevisionScope {
+  mode: RevisionMode
+  overall: boolean
+  articleIds: string[]
+  mandatoryArticleIds: string[]
+}
+
 export type TaskState =
   | 'PENDING_ANNOTATION'
   | 'ANNOTATING'
@@ -87,6 +96,8 @@ export interface TaskDetail {
   lawBaseInfoSnapshot: TaskLawBaseInfoSnapshot
   structureSnapshot: TaskStructureNodeSnapshot[]
   fieldConfigSnapshot: TaskFieldConfigSnapshot
+  baseAnnotationVersionId: string | null
+  revisionScope: RevisionScope | null
   createdBy: string
   cancelReason: string | null
   canceledBy: string | null
@@ -100,6 +111,15 @@ export interface CreateOrdinaryTaskPayload {
   annotatorId: string
   taskName?: string
   remark?: string
+}
+
+export interface CreateRevisionTaskPayload {
+  lawId: string
+  annotatorId: string
+  taskName?: string
+  remark?: string
+  overall: boolean
+  articleIds: string[]
 }
 
 export interface CancelTaskPayload {
@@ -129,6 +149,23 @@ export const ANNOTATOR_TASK_ACTION_LABELS: Record<TaskState, string> = {
   PENDING_REREVIEW: '查看',
   APPROVED: '查看',
   CANCELED: '查看',
+}
+
+export function annotatorTaskActionLabel(type: TaskType, state: TaskState): string {
+  if (type === 'REVISION') {
+    if (state === 'PENDING_ANNOTATION') return '开始修订'
+    if (state === 'ANNOTATING') return '继续修订'
+    if (state === 'PARTIALLY_REJECTED') return '修改修订'
+    return '查看修订'
+  }
+  if (state === 'PENDING_ANNOTATION') return '开始标注'
+  if (state === 'ANNOTATING') return '继续标注'
+  if (state === 'PARTIALLY_REJECTED') return '查看标注'
+  return '查看标注'
+}
+
+export function workbenchTitle(type: TaskType): string {
+  return type === 'REVISION' ? '修订工作台' : '标注工作台'
 }
 
 export const UNFINISHED_TASK_STATES: readonly TaskState[] = [
