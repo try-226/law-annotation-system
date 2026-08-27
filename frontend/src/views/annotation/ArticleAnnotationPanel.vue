@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ARTICLE_FIELD_LABELS, ITEM_TYPE_LABELS, type ArticleDraftForm } from '../../types/annotation'
 import type { TaskArticleSnapshot, TaskDetail } from '../../types/task'
-import { isFieldRequired } from './annotationDraftState'
+import { shouldShowRequiredMarker } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -21,7 +21,12 @@ function update(field: keyof ArticleDraftForm, value: string): void {
 }
 
 function required(field: keyof ArticleDraftForm): boolean {
-  return isFieldRequired(props.task.fieldConfigSnapshot.article, field)
+  return shouldShowRequiredMarker(
+    props.task,
+    { kind: 'article', articleId: props.article.articleId },
+    props.task.fieldConfigSnapshot.article,
+    field,
+  )
 }
 </script>
 

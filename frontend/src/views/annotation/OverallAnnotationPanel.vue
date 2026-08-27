@@ -3,7 +3,7 @@ import type { OverallDraftForm } from '../../types/annotation'
 import { LAW_CATEGORY_OPTIONS } from '../../types/annotation'
 import type { ValidityStatus } from '../../types/law'
 import type { TaskDetail } from '../../types/task'
-import { isFieldRequired } from './annotationDraftState'
+import { shouldShowRequiredMarker } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -24,7 +24,12 @@ function update(field: keyof OverallDraftForm, value: string): void {
 }
 
 function required(field: keyof OverallDraftForm): boolean {
-  return isFieldRequired(props.task.fieldConfigSnapshot.overall, field)
+  return shouldShowRequiredMarker(
+    props.task,
+    { kind: 'overall' },
+    props.task.fieldConfigSnapshot.overall,
+    field,
+  )
 }
 </script>
 

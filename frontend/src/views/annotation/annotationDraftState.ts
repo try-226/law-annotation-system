@@ -256,11 +256,12 @@ export function canEditAnnotationTarget(
   target: AnnotationTarget,
   draft: Pick<TaskDraftResponse, 'editableScope'>,
 ): boolean {
-  const stateAllowsEditing = task.taskType === 'REVISION'
-    ? task.revisionScope !== null
-      && (task.taskState === 'ANNOTATING' || task.taskState === 'PARTIALLY_REJECTED')
-    : task.taskState === 'ANNOTATING'
+  const stateAllowsEditing = task.taskState === 'ANNOTATING'
+    || task.taskState === 'PARTIALLY_REJECTED'
   if (!stateAllowsEditing) return false
+  if (task.taskType === 'REVISION'
+    && task.taskState === 'ANNOTATING'
+    && task.revisionScope === null) return false
   return target.kind === 'overall'
     ? draft.editableScope.overallEditable
     : draft.editableScope.editableArticleIds.includes(target.articleId)
@@ -320,17 +321,13 @@ export type AnnotationSubmissionAction = 'review' | 'rereview'
 
 export function annotationSubmissionAction(
   task: Pick<TaskDetail, 'taskType' | 'taskState' | 'revisionScope'>,
-  draft: Pick<TaskDraftResponse, 'editableScope'>,
 ): AnnotationSubmissionAction | null {
-  if (task.taskType === 'REVISION') {
-    if (task.revisionScope === null) return null
-    if (task.taskState === 'ANNOTATING') return 'review'
-    if (task.taskState === 'PARTIALLY_REJECTED') return 'rereview'
-    return null
+  if (task.taskState === 'ANNOTATING') {
+    return task.taskType === 'REVISION' && task.revisionScope === null
+      ? null
+      : 'review'
   }
-  return task.taskState === 'ANNOTATING' && draft.editableScope.overallEditable
-    ? 'review'
-    : null
+  return task.taskState === 'PARTIALLY_REJECTED' ? 'rereview' : null
 }
 
 export function isFieldRequired(
@@ -338,4 +335,18 @@ export function isFieldRequired(
   fieldKey: string,
 ): boolean {
   return config.some((item) => item.fieldKey === fieldKey && item.required)
+}
+
+export function shouldShowRequiredMarker(
+  task: Pick<TaskDetail, 'taskType' | 'revisionScope'>,
+  target: AnnotationTarget,
+  config: TaskFieldConfigSnapshotItem[],
+  fieldKey: string,
+): boolean {
+  if (!isFieldRequired(config, fieldKey)) return false
+  if (task.taskType === 'ORDINARY') return true
+  if (!task.revisionScope) return false
+  return target.kind === 'overall'
+    ? task.revisionScope.overall
+    : task.revisionScope.articleIds.includes(target.articleId)
 }

@@ -150,8 +150,12 @@ test('标注员加载状态只替换 annotator 字段，不清空其他有效修
 })
 
 test('普通与修订任务共用路由但显示各自操作和工作台文案', () => {
+  assert.equal(annotatorTaskActionLabel('ORDINARY', 'PENDING_ANNOTATION'), '开始标注')
   assert.equal(annotatorTaskActionLabel('ORDINARY', 'ANNOTATING'), '继续标注')
-  assert.equal(annotatorTaskActionLabel('ORDINARY', 'PARTIALLY_REJECTED'), '查看标注')
+  assert.equal(annotatorTaskActionLabel('ORDINARY', 'PARTIALLY_REJECTED'), '修改标注')
+  for (const state of ['PENDING_REVIEW', 'PENDING_REREVIEW', 'APPROVED', 'CANCELED']) {
+    assert.equal(annotatorTaskActionLabel('ORDINARY', state), '查看标注')
+  }
   assert.equal(annotatorTaskActionLabel('REVISION', 'PENDING_ANNOTATION'), '开始修订')
   assert.equal(annotatorTaskActionLabel('REVISION', 'ANNOTATING'), '继续修订')
   assert.equal(annotatorTaskActionLabel('REVISION', 'PARTIALLY_REJECTED'), '修改修订')

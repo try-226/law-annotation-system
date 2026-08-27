@@ -114,7 +114,7 @@ const currentEditable = computed(() => Boolean(
   task.value && draft.value && canEditAnnotationTarget(task.value, selected.value, draft.value),
 ))
 const submissionAction = computed(() => task.value && draft.value
-  ? annotationSubmissionAction(task.value, draft.value)
+  ? annotationSubmissionAction(task.value)
   : null)
 const canSubmit = computed(() => submissionAction.value !== null)
 const submitTitle = computed(() => submissionAction.value === 'rereview'
@@ -605,8 +605,9 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
         <button class="button button--primary" type="button" :disabled="starting" @click="startPendingTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : (task.taskType === 'REVISION' ? '开始修订' : '开始标注') }}</button>
       </section>
       <template v-else>
-        <p v-if="task.taskType === 'REVISION' && !task.revisionScope" class="annotation-readonly-note">服务器未返回修订范围，当前工作台以只读方式展示。</p>
-        <p v-else-if="task.taskType === 'REVISION' && task.taskState === 'PARTIALLY_REJECTED'" class="annotation-scope-note">仅服务器最新 editableScope 中的驳回问题项可修改；原始 revisionScope 仅用于展示任务范围。</p>
+        <p v-if="task.taskState === 'PARTIALLY_REJECTED' && task.taskType === 'REVISION'" class="annotation-scope-note">本轮仅服务器当前 editableScope 中的审核问题项可以修改，其他内容只读；原始 revisionScope 仅用于展示任务范围。</p>
+        <p v-else-if="task.taskState === 'PARTIALLY_REJECTED'" class="annotation-scope-note">本轮仅服务器当前 editableScope 中的审核问题项可以修改，其他内容只读。</p>
+        <p v-else-if="task.taskType === 'REVISION' && !task.revisionScope" class="annotation-readonly-note">服务器未返回修订范围，当前工作台以只读方式展示。</p>
         <p v-else-if="task.taskType === 'REVISION'" class="annotation-scope-note">修订范围由服务器确定：{{ task.revisionScope?.overall ? '包含整体信息' : '不含整体信息' }}，{{ task.revisionScope?.articleIds.length ?? 0 }} 条范围法条，其中 {{ task.revisionScope?.mandatoryArticleIds.length ?? 0 }} 条为正文变化必须重新标注。</p>
         <p v-if="!currentEditable" class="annotation-readonly-note">当前选中项不在服务器最新 editableScope 中，仍可查看，但不能保存或清空。</p>
         <section v-if="draft.reviewIssues.length" class="panel annotation-review-issues">

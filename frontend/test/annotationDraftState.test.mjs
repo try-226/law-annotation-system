@@ -18,6 +18,7 @@ import {
   reviewIssueTarget,
   sameWorkbenchSession,
   selectInitialTarget,
+  shouldShowRequiredMarker,
 } from '../src/views/annotation/annotationDraftState.ts'
 
 const task = {
@@ -201,7 +202,7 @@ test('deletion-only 使用中性进度提示且不改变提交资格，普通任
     articleLabel: '无需要手工保存的法条',
     overallLabel: null,
   })
-  assert.equal(annotationSubmissionAction(deletionOnly, serverDraft), 'review')
+  assert.equal(annotationSubmissionAction(deletionOnly), 'review')
   assert.equal(revisionDraftProgressPresentation(task, serverDraft), null)
 })
 
@@ -227,6 +228,39 @@ test('修订单项状态只表达 editableScope、原范围和 mandatory 角色'
   assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-2' }, readonly), '原修订范围·只读')
   assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'outside' }, readonly), '范围外·只读')
   assert.equal(revisionTargetStatus(task, { kind: 'article', articleId: 'a-1' }, editable), null)
+})
+
+test('required 红星按真实任务类型和原修订范围展示，不改变字段配置', () => {
+  const requiredConfig = [{ fieldKey: 'keywords', required: true }]
+  const optionalConfig = [{ fieldKey: 'keywords', required: false }]
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: false,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'overall' }, requiredConfig, 'keywords',
+  ), false)
+  assert.equal(shouldShowRequiredMarker(
+    { ...revision, revisionScope: { ...revision.revisionScope, overall: true } },
+    { kind: 'overall' }, requiredConfig, 'keywords',
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords',
+  ), false)
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords',
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'overall' }, requiredConfig, 'keywords',
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'article', articleId: 'a-1' }, optionalConfig, 'keywords',
+  ), false)
 })
 
 test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复服务器基准', () => {
@@ -325,19 +359,44 @@ test('修订编辑权限和提交动作严格按 taskType、taskState 与 editab
   assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'overall' }, articleDraft), false)
   assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
   assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
-  assert.equal(annotationSubmissionAction(articleOnly, articleDraft), 'review')
+  assert.equal(annotationSubmissionAction(articleOnly), 'review')
 
   const deletionOnly = {
     ...articleOnly,
     revisionScope: { mode: 'CONTENT_CHANGE', overall: false, articleIds: [], mandatoryArticleIds: [] },
   }
-  assert.equal(annotationSubmissionAction(deletionOnly, draft({
-    editableScope: { overallEditable: false, editableArticleIds: [] },
-  })), 'review')
+  assert.equal(annotationSubmissionAction(deletionOnly), 'review')
 
   const rejected = { ...articleOnly, taskState: 'PARTIALLY_REJECTED' }
-  assert.equal(annotationSubmissionAction(rejected, articleDraft), 'rereview')
-  assert.equal(canEditAnnotationTarget({ ...task, taskState: 'PARTIALLY_REJECTED' }, { kind: 'overall' }, articleDraft), false)
+  assert.equal(annotationSubmissionAction(rejected), 'rereview')
+  assert.equal(canEditAnnotationTarget(rejected, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
+  assert.equal(canEditAnnotationTarget(rejected, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
+
+  const ordinaryRejected = {
+    ...task, taskType: 'ORDINARY', taskState: 'PARTIALLY_REJECTED', revisionScope: null,
+  }
+  const overallIssueDraft = draft({
+    editableScope: { overallEditable: true, editableArticleIds: [] },
+  })
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'overall' }, overallIssueDraft), true)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-1' }, overallIssueDraft), false)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'overall' }, articleDraft), false)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
+  assert.equal(annotationSubmissionAction(ordinaryRejected), 'rereview')
+
+  const ordinaryAnnotating = { ...ordinaryRejected, taskState: 'ANNOTATING' }
+  assert.equal(annotationSubmissionAction(ordinaryAnnotating), 'review')
+  assert.equal(annotationSubmissionAction({ ...articleOnly, revisionScope: null }), null)
+
+  for (const state of ['PENDING_REVIEW', 'PENDING_REREVIEW', 'APPROVED', 'CANCELED']) {
+    const ordinaryReadonly = { ...ordinaryRejected, taskState: state }
+    const revisionReadonly = { ...articleOnly, taskState: state }
+    assert.equal(canEditAnnotationTarget(ordinaryReadonly, { kind: 'article', articleId: 'a-1' }, articleDraft), false)
+    assert.equal(canEditAnnotationTarget(revisionReadonly, { kind: 'article', articleId: 'a-1' }, articleDraft), false)
+    assert.equal(annotationSubmissionAction(ordinaryReadonly), null)
+    assert.equal(annotationSubmissionAction(revisionReadonly), null)
+  }
 })
 
 test('未保存状态下切换任务路由必须先确认', () => {

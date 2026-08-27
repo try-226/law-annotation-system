@@ -160,7 +160,7 @@ export function annotatorTaskActionLabel(type: TaskType, state: TaskState): stri
   }
   if (state === 'PENDING_ANNOTATION') return '开始标注'
   if (state === 'ANNOTATING') return '继续标注'
-  if (state === 'PARTIALLY_REJECTED') return '查看标注'
+  if (state === 'PARTIALLY_REJECTED') return '修改标注'
   return '查看标注'
 }
 
