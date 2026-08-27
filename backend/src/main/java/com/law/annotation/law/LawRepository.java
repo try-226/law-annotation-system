@@ -1,5 +1,6 @@
 package com.law.annotation.law;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -12,6 +13,8 @@ public interface LawRepository extends MongoRepository<LawDocument, String> {
     Optional<LawDocument> findFirstByNormalizedNameAndIdNot(String normalizedName, String id);
 
     boolean existsByNormalizedName(String normalizedName);
+
+    List<LawDocument> findAllByDeletedAtIsNull();
 
     Page<LawDocument> findByDeletedAtIsNull(Pageable pageable);
 

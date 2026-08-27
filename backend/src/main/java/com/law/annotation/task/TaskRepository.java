@@ -25,6 +25,18 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
             Collection<String> lawIds,
             Collection<TaskState> states);
 
+    long countByTaskStateInAndLawIdIn(
+            Collection<TaskState> states,
+            Collection<String> lawIds);
+
+    long countByTaskStateAndLawIdIn(
+            TaskState state,
+            Collection<String> lawIds);
+
+    List<TaskDocument> findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+            TaskState state,
+            Collection<String> lawIds);
+
     boolean existsByAnnotatorIdOrCreatedByOrCanceledBy(
             String annotatorId, String createdBy, String canceledBy);
 

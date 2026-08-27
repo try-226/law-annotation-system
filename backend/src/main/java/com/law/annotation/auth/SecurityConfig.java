@@ -86,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers("/auth/logout", "/auth/me", "/auth/me/**").authenticated()
                         .requestMatchers("/users", "/users/**").hasRole("ADMIN")
+                        .requestMatchers("/dashboard", "/dashboard/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/laws/*/history/tasks/*").authenticated()
                         .requestMatchers("/laws", "/laws/**").hasRole("ADMIN")
                         .requestMatchers("/field-config", "/field-config/**").hasRole("ADMIN")
