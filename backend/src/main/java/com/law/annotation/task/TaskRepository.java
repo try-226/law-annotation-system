@@ -33,7 +33,7 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
             TaskState state,
             Collection<String> lawIds);
 
-    List<TaskDocument> findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+    List<TaskDocument> findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
             TaskState state,
             Collection<String> lawIds);
 

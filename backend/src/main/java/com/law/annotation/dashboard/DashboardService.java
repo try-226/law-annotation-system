@@ -114,12 +114,12 @@ public class DashboardService {
         List<String> lawIds = laws.stream().map(LawDocument::getId).toList();
         return new DashboardTodoResponse(
                 toTodoItems(
-                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
                                 TaskState.PENDING_REVIEW,
                                 lawIds),
                         lawsById),
                 toTodoItems(
-                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
                                 TaskState.PENDING_REREVIEW,
                                 lawIds),
                         lawsById));

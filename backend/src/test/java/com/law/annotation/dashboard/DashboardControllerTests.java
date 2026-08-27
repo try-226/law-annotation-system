@@ -103,8 +103,11 @@ class DashboardControllerTests {
     }
 
     @Test
-    void anonymousDashboardRequestUsesUnifiedAuthenticationError() throws Exception {
+    void anonymousDashboardRequestsUseUnifiedAuthenticationError() throws Exception {
         mockMvc.perform(get("/dashboard/summary"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value(AuthErrorCodes.UNAUTHENTICATED));
+        mockMvc.perform(get("/dashboard/todos"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value(AuthErrorCodes.UNAUTHENTICATED));
 

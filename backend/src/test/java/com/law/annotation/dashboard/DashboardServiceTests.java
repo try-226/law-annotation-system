@@ -179,10 +179,10 @@ class DashboardServiceTests {
                 TaskType.ORDINARY,
                 TaskState.PENDING_REVIEW,
                 T0.plusSeconds(2));
-        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
                         TaskState.PENDING_REVIEW, List.of("law-1", "law-2")))
                 .thenReturn(List.of(deletedLawTask, review));
-        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDesc(
+        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
                         TaskState.PENDING_REREVIEW, List.of("law-1", "law-2")))
                 .thenReturn(List.of(rereview));
 

@@ -138,17 +138,30 @@ class DashboardPersistenceIntegrationTests {
     void todosAreLimitedToTenNewestTasksPerCategory() {
         for (int index = 0; index < 12; index++) {
             String suffix = String.format("%02d", index);
-            ContentVersionDocument version = version(
-                    "c-" + suffix, "law-" + suffix, 1, 1);
-            contentVersionRepository.insert(version);
-            LawDocument law = law("law-" + suffix, version.getId(), null, false);
-            lawRepository.insert(law);
+            ContentVersionDocument reviewVersion = version(
+                    "c-review-" + suffix, "law-review-" + suffix, 1, 1);
+            ContentVersionDocument rereviewVersion = version(
+                    "c-rereview-" + suffix, "law-rereview-" + suffix, 1, 1);
+            contentVersionRepository.insert(reviewVersion);
+            contentVersionRepository.insert(rereviewVersion);
+            LawDocument reviewLaw = law(
+                    "law-review-" + suffix, reviewVersion.getId(), null, false);
+            LawDocument rereviewLaw = law(
+                    "law-rereview-" + suffix, rereviewVersion.getId(), null, false);
+            lawRepository.insert(reviewLaw);
+            lawRepository.insert(rereviewLaw);
             taskRepository.insert(task(
-                    "task-" + suffix,
-                    law,
+                    "review-" + suffix,
+                    reviewLaw,
                     TaskType.ORDINARY,
                     TaskState.PENDING_REVIEW,
-                    T0.plusSeconds(index)));
+                    T0.plusSeconds(index / 2)));
+            taskRepository.insert(task(
+                    "rereview-" + suffix,
+                    rereviewLaw,
+                    TaskType.REVISION,
+                    TaskState.PENDING_REREVIEW,
+                    T0.plusSeconds(index / 2)));
         }
 
         DashboardTodoResponse todos = service.getTodos();
@@ -156,9 +169,14 @@ class DashboardPersistenceIntegrationTests {
         assertThat(todos.pendingReview()).hasSize(10);
         assertThat(todos.pendingReview()).extracting(item -> item.taskId())
                 .containsExactly(
-                        "task-11", "task-10", "task-09", "task-08", "task-07",
-                        "task-06", "task-05", "task-04", "task-03", "task-02");
-        assertThat(todos.pendingRereview()).isEmpty();
+                        "review-11", "review-10", "review-09", "review-08", "review-07",
+                        "review-06", "review-05", "review-04", "review-03", "review-02");
+        assertThat(todos.pendingRereview()).hasSize(10);
+        assertThat(todos.pendingRereview()).extracting(item -> item.taskId())
+                .containsExactly(
+                        "rereview-11", "rereview-10", "rereview-09", "rereview-08",
+                        "rereview-07", "rereview-06", "rereview-05", "rereview-04",
+                        "rereview-03", "rereview-02");
     }
 
     @Test
