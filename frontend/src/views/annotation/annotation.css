@@ -37,7 +37,7 @@
 .annotation-editor { min-width: 0; overflow: hidden; }.annotation-panel-content { padding: 28px 30px 10px; }
 .annotation-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
 .annotation-panel-heading h2 { margin: 0; font-size: 21px; }.annotation-panel-heading p { margin: 7px 0 0; color: #748092; font-size: 12px; }
-.annotation-state-pill { border-radius: 14px; background: #f1f3f6; color: #6b7585; padding: 5px 10px; font-size: 11px; }.annotation-state-pill.complete { background: #e8f7ef; color: #218554; }
+.annotation-state-pill { border-radius: 14px; background: #f1f3f6; color: #6b7585; padding: 5px 10px; font-size: 11px; }.annotation-state-pill.complete { background: #e8f7ef; color: #218554; }.annotation-state-pill.revision { background: #eaf2fd; color: #2868c7; }
 .annotation-law-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 22px; margin: 0; border: 1px solid #e5eaf0; border-radius: 7px; background: #f8fafc; padding: 18px; }
 .annotation-law-meta dt { margin-bottom: 4px; color: #7b8595; font-size: 11px; }.annotation-law-meta dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .article-body { border: 1px solid #dfe5ec; border-radius: 7px; background: #f8fafc; padding: 18px 20px; }.article-body p { margin: 0; color: #303b4c; font-size: 14px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }

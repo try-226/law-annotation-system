@@ -12,6 +12,7 @@ import type {
   TaskDetail,
   TaskFieldConfigSnapshotItem,
   TaskStructureNodeSnapshot,
+  TaskType,
 } from '../../types/task'
 import type { ReviewItemLocator } from '../../types/review'
 
@@ -85,6 +86,14 @@ export function isArticleDraftComplete(
       default: return false
     }
   })
+}
+
+export function articleCompletionForTask(
+  taskType: TaskType,
+  config: TaskFieldConfigSnapshotItem[],
+  values: ArticleDraftValues | null | undefined,
+): boolean | null {
+  return taskType === 'ORDINARY' ? isArticleDraftComplete(config, values) : null
 }
 
 export function selectInitialTarget(
@@ -234,6 +243,56 @@ export function canEditAnnotationTarget(
   return target.kind === 'overall'
     ? draft.editableScope.overallEditable
     : draft.editableScope.editableArticleIds.includes(target.articleId)
+}
+
+export function revisionTargetStatus(
+  task: Pick<TaskDetail, 'taskType' | 'taskState' | 'revisionScope'>,
+  target: AnnotationTarget,
+  draft: Pick<TaskDraftResponse, 'editableScope'>,
+): string | null {
+  if (task.taskType !== 'REVISION') return null
+  const editable = canEditAnnotationTarget(task, target, draft)
+  const mandatory = target.kind === 'article'
+    && Boolean(task.revisionScope?.mandatoryArticleIds.includes(target.articleId))
+  if (editable) return mandatory ? '必修订·当前可修改' : '当前可修改'
+  if (mandatory) return '正文变化范围·只读'
+  const inOriginalScope = target.kind === 'overall'
+    ? Boolean(task.revisionScope?.overall)
+    : Boolean(task.revisionScope?.articleIds.includes(target.articleId))
+  return inOriginalScope ? '原修订范围·只读' : '范围外·只读'
+}
+
+export interface AnnotationClearPresentation {
+  actionLabel: string
+  title: string
+  description: string
+  confirmLabel: string
+  successMessage: string
+  errorFallback: string
+}
+
+export function annotationClearPresentation(
+  taskType: TaskType,
+  targetLabel: string,
+): AnnotationClearPresentation {
+  if (taskType === 'REVISION') {
+    return {
+      actionLabel: '撤销本次修订',
+      title: '确认撤销本次修订',
+      description: `将撤销“${targetLabel}”本轮已保存的修订内容，并恢复显示上一正式标注结果。恢复后，如果该项仍属于当前可编辑范围，需要重新保存后才能提交审核。`,
+      confirmLabel: '确认撤销',
+      successMessage: `${targetLabel}本次修订已撤销，已恢复上一正式标注结果`,
+      errorFallback: '撤销本次修订失败，请稍后重试',
+    }
+  }
+  return {
+    actionLabel: '清空当前标注',
+    title: '确认清空当前标注',
+    description: `确定清空“${targetLabel}”已保存的标注吗？该区域会恢复为未完成状态。`,
+    confirmLabel: '确认清空',
+    successMessage: `${targetLabel}标注已清空`,
+    errorFallback: '清空标注失败，请稍后重试',
+  }
 }
 
 export type AnnotationSubmissionAction = 'review' | 'rereview'

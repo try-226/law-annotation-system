@@ -11,6 +11,7 @@ const props = defineProps<{
   errors: Record<string, string>
   editable: boolean
   completed: boolean
+  revisionStatus: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: ArticleDraftForm] }>()
@@ -28,7 +29,8 @@ function required(field: keyof ArticleDraftForm): boolean {
   <div class="annotation-panel-content">
     <header class="annotation-panel-heading">
       <div><h2>{{ article.number }}</h2><p>章节路径：{{ structurePath || '未归入结构节点' }}</p></div>
-      <span class="annotation-state-pill" :class="{ complete: completed }">{{ completed ? '已完成' : '未完成' }}</span>
+      <span v-if="revisionStatus" class="annotation-state-pill revision">{{ revisionStatus }}</span>
+      <span v-else class="annotation-state-pill" :class="{ complete: completed }">{{ completed ? '已完成' : '未完成' }}</span>
     </header>
     <section class="article-body"><p>{{ article.body }}</p></section>
 

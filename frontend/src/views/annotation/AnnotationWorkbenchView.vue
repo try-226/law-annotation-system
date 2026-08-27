@@ -32,15 +32,17 @@ import OverallAnnotationPanel from './OverallAnnotationPanel.vue'
 import SubmitAnnotationModal from './SubmitAnnotationModal.vue'
 import UnsavedChangesModal from './UnsavedChangesModal.vue'
 import {
+  annotationClearPresentation,
   createArticleForm,
   createOverallForm,
   annotationSubmissionAction,
+  articleCompletionForTask,
   canEditAnnotationTarget,
   decideAnnotationNavigation,
   formsEqual,
-  isArticleDraftComplete,
   parseAnnotationLocator,
   reconcileSavedForm,
+  revisionTargetStatus,
   reviewIssueTarget,
   sameWorkbenchSession,
   sameTarget,
@@ -100,7 +102,11 @@ const articleCompletion = computed<Record<string, boolean>>(() => {
   if (!task.value || !draft.value) return {}
   return Object.fromEntries(task.value.contentVersionSnapshot.articles.map((article) => [
     article.articleId,
-    isArticleDraftComplete(task.value!.fieldConfigSnapshot.article, draft.value!.articleDrafts[article.articleId]),
+    articleCompletionForTask(
+      task.value!.taskType,
+      task.value!.fieldConfigSnapshot.article,
+      draft.value!.articleDrafts[article.articleId],
+    ) ?? false,
   ]))
 })
 
@@ -139,6 +145,13 @@ const searchResult = computed(() => {
 const targetLabel = computed(() => selected.value.kind === 'overall'
   ? '整体信息'
   : (selectedArticle.value?.number ?? '当前法条'))
+const currentRevisionStatus = computed(() => task.value && draft.value
+  ? revisionTargetStatus(task.value, selected.value, draft.value)
+  : null)
+const clearPresentation = computed(() => annotationClearPresentation(
+  task.value?.taskType ?? 'ORDINARY',
+  targetLabel.value,
+))
 
 const previousTarget = computed<AnnotationTarget | null>(() => adjacentTarget(-1))
 const nextTarget = computed<AnnotationTarget | null>(() => adjacentTarget(1))
@@ -363,6 +376,7 @@ async function confirmClear(): Promise<void> {
     || clearTaskId.value !== task.value.taskId) return
   const operation = currentWorkbenchSession()
   const operationTarget = { ...selected.value } as AnnotationTarget
+  const presentation = annotationClearPresentation(task.value.taskType, targetLabel.value)
   clearing.value = true
   try {
     const response = operationTarget.kind === 'overall'
@@ -373,7 +387,7 @@ async function confirmClear(): Promise<void> {
     clearOpen.value = false
     clearTaskId.value = ''
     syncSelectedForms()
-    notify(`${targetLabel.value}标注已清空`, 'success')
+    notify(presentation.successMessage, 'success')
   } catch (error: unknown) {
     if (!operationStillBelongsToTask(operation)) return
     if (parseFailure(error).status === 409) {
@@ -381,7 +395,7 @@ async function confirmClear(): Promise<void> {
       clearOpen.value = false
       clearTaskId.value = ''
     } else {
-      notify(workbenchError(error, '清空标注失败，请稍后重试'), 'error')
+      notify(workbenchError(error, presentation.errorFallback), 'error')
     }
   } finally {
     clearing.value = false
@@ -609,10 +623,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
             @search="runSearch" @page="searchPage = $event"
           />
           <main class="annotation-editor panel">
-            <OverallAnnotationPanel v-if="selected.kind === 'overall'" v-model="overallForm" :task="task" :errors="formErrors" :editable="currentEditable" />
-            <ArticleAnnotationPanel v-else-if="selectedArticle" v-model="articleForm" :task="task" :article="selectedArticle" :structure-path="structurePath(selectedArticle.articleId)" :errors="formErrors" :editable="currentEditable" :completed="articleCompletion[selectedArticle.articleId]" />
+            <OverallAnnotationPanel v-if="selected.kind === 'overall'" v-model="overallForm" :task="task" :errors="formErrors" :editable="currentEditable" :revision-status="currentRevisionStatus" />
+            <ArticleAnnotationPanel v-else-if="selectedArticle" v-model="articleForm" :task="task" :article="selectedArticle" :structure-path="structurePath(selectedArticle.articleId)" :errors="formErrors" :editable="currentEditable" :completed="articleCompletion[selectedArticle.articleId]" :revision-status="currentRevisionStatus" />
             <footer class="annotation-actions">
-              <button v-if="currentEditable" class="button button--danger" type="button" :disabled="saving || clearing || submitting" @click="openClearModal">清空当前标注</button>
+              <button v-if="currentEditable" class="button button--danger" type="button" :disabled="saving || clearing || submitting" @click="openClearModal">{{ clearPresentation.actionLabel }}</button>
               <span class="annotation-actions-spacer" />
               <button class="button" type="button" :disabled="!previousTarget || saving" @click="requestTarget(previousTarget!)">上一项</button>
               <button v-if="currentEditable" class="button" type="button" :disabled="saving || clearing || submitting" @click="saveCurrent"><span v-if="saving" class="spinner" />保存草稿</button>
@@ -625,7 +639,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
       </template>
 
       <UnsavedChangesModal :open="Boolean(unsavedMode)" :mode="unsavedMode || 'switch'" :busy="saving" @close="unsavedMode = null; pendingTarget = null; pendingFocusFieldKey = ''; pendingLeavePath = ''" @save="saveUnsavedAction" @discard="discardUnsavedAction" />
-      <ClearAnnotationModal :open="clearOpen" :target-label="targetLabel" :busy="clearing" @close="clearOpen = false; clearTaskId = ''" @confirm="confirmClear" />
+      <ClearAnnotationModal :open="clearOpen" :title="clearPresentation.title" :description="clearPresentation.description" :confirm-label="clearPresentation.confirmLabel" :busy="clearing" @close="clearOpen = false; clearTaskId = ''" @confirm="confirmClear" />
       <SubmitAnnotationModal :open="submitOpen" :busy="submitting" :locators="submitLocators" :error="submitError" :title="submitTitle" :description="submitDescription" @close="submitOpen = false; submitTaskId = ''; submitLocators = []; submitError = ''" @confirm="confirmSubmit" @locate="locateSubmissionError" />
     </template>
   </div>

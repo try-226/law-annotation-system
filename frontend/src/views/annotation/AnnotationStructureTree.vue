@@ -9,7 +9,7 @@ import {
   type TaskDraftResponse,
 } from '../../types/annotation'
 import type { TaskDetail } from '../../types/task'
-import { canEditAnnotationTarget, orderedTaskStructureRows, sameTarget } from './annotationDraftState'
+import { orderedTaskStructureRows, revisionTargetStatus, sameTarget } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -30,20 +30,7 @@ const emit = defineEmits<{
 }>()
 
 const rows = computed(() => orderedTaskStructureRows(props.task))
-
-function revisionTargetStatus(target: AnnotationTarget): string | null {
-  if (props.task.taskType !== 'REVISION') return null
-  const editable = canEditAnnotationTarget(props.task, target, props.draft)
-  if (target.kind === 'article'
-    && props.task.revisionScope?.mandatoryArticleIds.includes(target.articleId)) {
-    return editable ? '必改·可修改' : '必改·只读'
-  }
-  if (editable) return '可修改'
-  const inOriginalScope = target.kind === 'overall'
-    ? Boolean(props.task.revisionScope?.overall)
-    : Boolean(props.task.revisionScope?.articleIds.includes(target.articleId))
-  return inOriginalScope ? '范围内只读' : '只读'
-}
+const targetStatus = (target: AnnotationTarget) => revisionTargetStatus(props.task, target, props.draft)
 </script>
 
 <template>
@@ -64,7 +51,7 @@ function revisionTargetStatus(target: AnnotationTarget): string | null {
       <div class="annotation-results-heading"><strong>搜索结果</strong><span>{{ searchResult.totalElements }} 项</span></div>
       <p v-if="searchResult.items.length === 0" class="annotation-empty-copy">当前任务中没有匹配内容</p>
       <button v-for="item in searchResult.items" :key="item.key" type="button" class="annotation-search-result" @click="emit('target', item.target)">
-        <strong>{{ item.target.kind === 'overall' ? '整体信息' : item.articleNumber }}<em v-if="revisionTargetStatus(item.target)">{{ revisionTargetStatus(item.target) }}</em></strong>
+        <strong>{{ item.target.kind === 'overall' ? '整体信息' : item.articleNumber }}<em v-if="targetStatus(item.target)">{{ targetStatus(item.target) }}</em></strong>
         <small>{{ item.lawName }} · {{ item.structurePath }} · {{ item.fieldLabel }}</small>
         <span><template v-for="(segment, index) in item.segments" :key="index"><mark v-if="segment.highlighted">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></span>
       </button>
@@ -77,12 +64,12 @@ function revisionTargetStatus(target: AnnotationTarget): string | null {
 
     <div v-else class="annotation-tree">
       <button type="button" class="annotation-tree-target annotation-overall-target" :class="{ selected: sameTarget(selected, { kind: 'overall' }) }" @click="emit('target', { kind: 'overall' })">
-        <span>整体信息</span><small v-if="task.taskType === 'REVISION'" :class="{ editable: revisionTargetStatus({ kind: 'overall' }) === '可修改' }">{{ revisionTargetStatus({ kind: 'overall' }) }}</small><small v-else :class="{ complete: draft.progress.overallCompleted }">{{ draft.progress.overallCompleted ? '✓ 已完成' : '未完成' }}</small>
+        <span>整体信息</span><small v-if="task.taskType === 'REVISION'" :class="{ editable: targetStatus({ kind: 'overall' }) === '当前可修改' }">{{ targetStatus({ kind: 'overall' }) }}</small><small v-else :class="{ complete: draft.progress.overallCompleted }">{{ draft.progress.overallCompleted ? '✓ 已完成' : '未完成' }}</small>
       </button>
       <template v-for="row in rows" :key="row.key">
         <div v-if="row.kind === 'node'" class="annotation-tree-node" :style="{ paddingLeft: `${10 + row.depth * 15}px` }">{{ row.node.title }}</div>
         <button v-else type="button" class="annotation-tree-target" :class="{ selected: sameTarget(selected, { kind: 'article', articleId: row.article.articleId }) }" :style="{ paddingLeft: `${18 + row.depth * 15}px` }" @click="emit('target', { kind: 'article', articleId: row.article.articleId })">
-          <span>{{ row.article.number }}</span><small v-if="task.taskType === 'REVISION'" :class="{ mandatory: revisionTargetStatus({ kind: 'article', articleId: row.article.articleId })?.startsWith('必改'), editable: revisionTargetStatus({ kind: 'article', articleId: row.article.articleId }) === '可修改' }">{{ revisionTargetStatus({ kind: 'article', articleId: row.article.articleId }) }}</small><small v-else :class="{ complete: articleCompletion[row.article.articleId] }">{{ articleCompletion[row.article.articleId] ? '✓' : '未完成' }}</small>
+          <span>{{ row.article.number }}</span><small v-if="task.taskType === 'REVISION'" :class="{ mandatory: task.revisionScope?.mandatoryArticleIds.includes(row.article.articleId), editable: targetStatus({ kind: 'article', articleId: row.article.articleId }) === '当前可修改' }">{{ targetStatus({ kind: 'article', articleId: row.article.articleId }) }}</small><small v-else :class="{ complete: articleCompletion[row.article.articleId] }">{{ articleCompletion[row.article.articleId] ? '✓' : '未完成' }}</small>
         </button>
       </template>
     </div>

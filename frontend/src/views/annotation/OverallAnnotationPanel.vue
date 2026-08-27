@@ -10,6 +10,7 @@ const props = defineProps<{
   modelValue: OverallDraftForm
   errors: Record<string, string>
   editable: boolean
+  revisionStatus: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: OverallDraftForm] }>()
@@ -31,7 +32,8 @@ function required(field: keyof OverallDraftForm): boolean {
   <div class="annotation-panel-content">
     <header class="annotation-panel-heading">
       <div><h2>整体信息</h2><p>法律基础信息只读，标注字段按任务创建时配置填写。</p></div>
-      <span class="annotation-state-pill" :class="{ complete: false }">整体标注</span>
+      <span v-if="revisionStatus" class="annotation-state-pill revision">{{ revisionStatus }}</span>
+      <span v-else class="annotation-state-pill">整体标注</span>
     </header>
 
     <dl class="annotation-law-meta">

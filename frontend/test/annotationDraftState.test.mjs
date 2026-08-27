@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  annotationClearPresentation,
   annotationSubmissionAction,
+  articleCompletionForTask,
   canEditAnnotationTarget,
   createArticleForm,
   createOverallForm,
@@ -11,6 +13,7 @@ import {
   isArticleDraftComplete,
   parseAnnotationLocator,
   reconcileSavedForm,
+  revisionTargetStatus,
   reviewIssueTarget,
   sameWorkbenchSession,
   selectInitialTarget,
@@ -90,6 +93,73 @@ test('单条完成状态只读取服务器已保存草稿和字段快照', () =>
   assert.equal(isArticleDraftComplete(task.fieldConfigSnapshot.article, {
     itemType: 'DEFINITION', keywords: null, subjects: '当前未保存表单不应被读取', legalLiability: null, annotationNote: null,
   }), false)
+})
+
+test('普通任务继续按完整字段显示已完成，修订任务不把合并的基础值当作本轮完成', () => {
+  const completeBaseValue = {
+    itemType: 'DEFINITION', keywords: '基础标注', subjects: null,
+    legalLiability: null, annotationNote: null,
+  }
+  assert.equal(isArticleDraftComplete(task.fieldConfigSnapshot.article, completeBaseValue), true)
+  assert.equal(articleCompletionForTask('ORDINARY', task.fieldConfigSnapshot.article, completeBaseValue), true)
+  assert.equal(articleCompletionForTask('REVISION', task.fieldConfigSnapshot.article, completeBaseValue), null)
+
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: true,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+  assert.equal(revisionTargetStatus(
+    revision,
+    { kind: 'article', articleId: 'a-1' },
+    draft({ articleDrafts: { 'a-1': completeBaseValue } }),
+  ), '当前可修改')
+})
+
+test('修订单项状态只表达 editableScope、原范围和 mandatory 角色', () => {
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: true,
+      articleIds: ['a-1', 'a-2'], mandatoryArticleIds: ['a-1'],
+    },
+  }
+  const editable = draft({
+    editableScope: { overallEditable: true, editableArticleIds: ['a-1', 'a-2'] },
+  })
+  assert.equal(revisionTargetStatus(revision, { kind: 'overall' }, editable), '当前可修改')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-1' }, editable), '必修订·当前可修改')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-2' }, editable), '当前可修改')
+
+  const readonly = draft({ editableScope: { overallEditable: false, editableArticleIds: [] } })
+  assert.equal(revisionTargetStatus(revision, { kind: 'overall' }, readonly), '原修订范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-1' }, readonly), '正文变化范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-2' }, readonly), '原修订范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'outside' }, readonly), '范围外·只读')
+  assert.equal(revisionTargetStatus(task, { kind: 'article', articleId: 'a-1' }, editable), null)
+})
+
+test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复基础标注', () => {
+  assert.deepEqual(annotationClearPresentation('ORDINARY', '第一条'), {
+    actionLabel: '清空当前标注',
+    title: '确认清空当前标注',
+    description: '确定清空“第一条”已保存的标注吗？该区域会恢复为未完成状态。',
+    confirmLabel: '确认清空',
+    successMessage: '第一条标注已清空',
+    errorFallback: '清空标注失败，请稍后重试',
+  })
+  assert.deepEqual(annotationClearPresentation('REVISION', '整体信息'), {
+    actionLabel: '撤销本次修订',
+    title: '确认撤销本次修订',
+    description: '将撤销“整体信息”本轮已保存的修订内容，并恢复显示上一正式标注结果。恢复后，如果该项仍属于当前可编辑范围，需要重新保存后才能提交审核。',
+    confirmLabel: '确认撤销',
+    successMessage: '整体信息本次修订已撤销，已恢复上一正式标注结果',
+    errorFallback: '撤销本次修订失败，请稍后重试',
+  })
 })
 
 test('表单副本可准确识别真实差异并不修改服务器值', () => {
