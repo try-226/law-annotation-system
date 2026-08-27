@@ -7,6 +7,7 @@ import com.law.annotation.annotation.RereviewSubmissionIndexInitializer;
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
 import com.law.annotation.field.FieldConfigIndexInitializer;
 import com.law.annotation.field.FieldConfigRepository;
+import com.law.annotation.history.HistoryIndexInitializer;
 import com.law.annotation.law.LawAuditRepository;
 import com.law.annotation.law.LawDomainIndexInitializer;
 import com.law.annotation.law.LawRepository;
@@ -95,6 +96,9 @@ class LawAnnotationApplicationTests {
 
     @MockitoBean
     private AnnotationVersionIndexInitializer annotationVersionIndexInitializer;
+
+    @MockitoBean
+    private HistoryIndexInitializer historyIndexInitializer;
 
     @MockitoBean
     private BootstrapAdminRunner bootstrapAdminRunner;
