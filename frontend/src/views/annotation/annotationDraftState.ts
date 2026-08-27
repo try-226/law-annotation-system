@@ -338,13 +338,16 @@ export function isFieldRequired(
 }
 
 export function shouldShowRequiredMarker(
-  task: Pick<TaskDetail, 'taskType' | 'revisionScope'>,
+  task: Pick<TaskDetail, 'taskType' | 'taskState' | 'revisionScope'>,
   target: AnnotationTarget,
   config: TaskFieldConfigSnapshotItem[],
   fieldKey: string,
+  targetEditable: boolean,
 ): boolean {
-  if (!isFieldRequired(config, fieldKey)) return false
+  if (!isFieldRequired(config, fieldKey) || !targetEditable) return false
+  if (task.taskState !== 'ANNOTATING' && task.taskState !== 'PARTIALLY_REJECTED') return false
   if (task.taskType === 'ORDINARY') return true
+  if (task.taskState === 'PARTIALLY_REJECTED') return true
   if (!task.revisionScope) return false
   return target.kind === 'overall'
     ? task.revisionScope.overall

@@ -29,6 +29,7 @@ function required(field: keyof OverallDraftForm): boolean {
     { kind: 'overall' },
     props.task.fieldConfigSnapshot.overall,
     field,
+    props.editable,
   )
 }
 </script>

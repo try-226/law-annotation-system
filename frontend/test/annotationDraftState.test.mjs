@@ -230,7 +230,7 @@ test('修订单项状态只表达 editableScope、原范围和 mandatory 角色'
   assert.equal(revisionTargetStatus(task, { kind: 'article', articleId: 'a-1' }, editable), null)
 })
 
-test('required 红星按真实任务类型和原修订范围展示，不改变字段配置', () => {
+test('required 红星按任务阶段与服务器当前可编辑范围展示，不改变字段配置', () => {
   const requiredConfig = [{ fieldKey: 'keywords', required: true }]
   const optionalConfig = [{ fieldKey: 'keywords', required: false }]
   const revision = {
@@ -243,24 +243,46 @@ test('required 红星按真实任务类型和原修订范围展示，不改变�
   }
 
   assert.equal(shouldShowRequiredMarker(
-    revision, { kind: 'overall' }, requiredConfig, 'keywords',
+    revision, { kind: 'overall' }, requiredConfig, 'keywords', true,
   ), false)
   assert.equal(shouldShowRequiredMarker(
     { ...revision, revisionScope: { ...revision.revisionScope, overall: true } },
-    { kind: 'overall' }, requiredConfig, 'keywords',
+    { kind: 'overall' }, requiredConfig, 'keywords', true,
   ), true)
   assert.equal(shouldShowRequiredMarker(
-    revision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords',
+    revision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords', true,
   ), false)
   assert.equal(shouldShowRequiredMarker(
-    revision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords',
+    revision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+  ), true)
+
+  const rejectedRevision = { ...revision, taskState: 'PARTIALLY_REJECTED' }
+  assert.equal(shouldShowRequiredMarker(
+    rejectedRevision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords', true,
   ), true)
   assert.equal(shouldShowRequiredMarker(
-    task, { kind: 'overall' }, requiredConfig, 'keywords',
-  ), true)
-  assert.equal(shouldShowRequiredMarker(
-    task, { kind: 'article', articleId: 'a-1' }, optionalConfig, 'keywords',
+    rejectedRevision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', false,
   ), false)
+
+  const rejectedOrdinary = { ...task, taskState: 'PARTIALLY_REJECTED' }
+  assert.equal(shouldShowRequiredMarker(
+    rejectedOrdinary, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'overall' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'article', articleId: 'a-1' }, optionalConfig, 'keywords', true,
+  ), false)
+
+  for (const taskState of ['PENDING_REVIEW', 'PENDING_REREVIEW', 'APPROVED', 'CANCELED']) {
+    assert.equal(shouldShowRequiredMarker(
+      { ...task, taskState }, { kind: 'overall' }, requiredConfig, 'keywords', true,
+    ), false)
+    assert.equal(shouldShowRequiredMarker(
+      { ...revision, taskState }, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+    ), false)
+  }
 })
 
 test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复服务器基准', () => {

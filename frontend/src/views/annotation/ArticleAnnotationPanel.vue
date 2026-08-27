@@ -26,6 +26,7 @@ function required(field: keyof ArticleDraftForm): boolean {
     { kind: 'article', articleId: props.article.articleId },
     props.task.fieldConfigSnapshot.article,
     field,
+    props.editable,
   )
 }
 </script>
