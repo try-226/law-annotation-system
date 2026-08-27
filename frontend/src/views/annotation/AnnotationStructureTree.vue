@@ -9,7 +9,12 @@ import {
   type TaskDraftResponse,
 } from '../../types/annotation'
 import type { TaskDetail } from '../../types/task'
-import { orderedTaskStructureRows, revisionTargetStatus, sameTarget } from './annotationDraftState'
+import {
+  orderedTaskStructureRows,
+  revisionDraftProgressPresentation,
+  revisionTargetStatus,
+  sameTarget,
+} from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -30,6 +35,7 @@ const emit = defineEmits<{
 }>()
 
 const rows = computed(() => orderedTaskStructureRows(props.task))
+const revisionProgress = computed(() => revisionDraftProgressPresentation(props.task, props.draft))
 const targetStatus = (target: AnnotationTarget) => revisionTargetStatus(props.task, target, props.draft)
 </script>
 
@@ -76,8 +82,9 @@ const targetStatus = (target: AnnotationTarget) => revisionTargetStatus(props.ta
 
     <footer class="annotation-progress">
       <template v-if="task.taskType === 'REVISION'">
-        <strong>范围法条 {{ task.revisionScope?.articleIds.length ?? 0 }} 条</strong>
-        <small>当前可编辑 {{ draft.editableScope.editableArticleIds.length }} 条；权限以服务器 editableScope 为准</small>
+        <strong v-if="revisionProgress">{{ revisionProgress.articleLabel }}</strong>
+        <small v-if="revisionProgress?.overallLabel">{{ revisionProgress.overallLabel }}</small>
+        <small>原范围法条 {{ task.revisionScope?.articleIds.length ?? 0 }} 条；当前可编辑 {{ draft.editableScope.editableArticleIds.length }} 条；权限以服务器 editableScope 为准</small>
       </template>
       <template v-else>
         <strong>法条进度 {{ draft.progress.filledArticles }} / {{ draft.progress.totalArticles }}</strong>

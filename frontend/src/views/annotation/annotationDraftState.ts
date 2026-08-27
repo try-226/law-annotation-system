@@ -96,6 +96,27 @@ export function articleCompletionForTask(
   return taskType === 'ORDINARY' ? isArticleDraftComplete(config, values) : null
 }
 
+export interface RevisionDraftProgressPresentation {
+  articleLabel: string
+  overallLabel: string | null
+}
+
+export function revisionDraftProgressPresentation(
+  task: Pick<TaskDetail, 'taskType' | 'revisionScope'>,
+  draft: Pick<TaskDraftResponse, 'progress'>,
+): RevisionDraftProgressPresentation | null {
+  if (task.taskType !== 'REVISION' || !task.revisionScope) return null
+  const { filledArticles, totalArticles, overallCompleted } = draft.progress
+  return {
+    articleLabel: totalArticles === 0
+      ? '无需要手工保存的法条'
+      : `修订法条进度 ${filledArticles} / ${totalArticles}`,
+    overallLabel: task.revisionScope.overall
+      ? `整体信息：${overallCompleted ? '已保存' : '待保存'}`
+      : null,
+  }
+}
+
 export function selectInitialTarget(
   task: Pick<TaskDetail, 'taskType' | 'taskState' | 'contentVersionSnapshot' | 'fieldConfigSnapshot' | 'structureSnapshot'>,
   draft: Pick<TaskDraftResponse, 'articleDrafts' | 'progress' | 'editableScope' | 'revision' | 'updatedAt'>,

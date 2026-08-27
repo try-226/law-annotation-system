@@ -13,6 +13,7 @@ import {
   isArticleDraftComplete,
   parseAnnotationLocator,
   reconcileSavedForm,
+  revisionDraftProgressPresentation,
   revisionTargetStatus,
   reviewIssueTarget,
   sameWorkbenchSession,
@@ -117,6 +118,91 @@ test('普通任务继续按完整字段显示已完成，修订任务不把合�
     { kind: 'article', articleId: 'a-1' },
     draft({ articleDrafts: { 'a-1': completeBaseValue } }),
   ), '当前可修改')
+})
+
+test('修订保存进度只读取服务器 progress，不读取合并后的 articleDrafts 或 editableScope', () => {
+  const completeBaseValue = {
+    itemType: 'DEFINITION', keywords: '基础标注', subjects: null,
+    legalLiability: null, annotationNote: null,
+  }
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    taskState: 'PARTIALLY_REJECTED',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: true,
+      articleIds: ['a-1', 'a-2', 'a-3', 'a-4', 'a-5'], mandatoryArticleIds: [],
+    },
+  }
+  const serverDraft = draft({
+    articleDrafts: {
+      'a-1': completeBaseValue,
+      'a-2': completeBaseValue,
+      'a-3': completeBaseValue,
+      'a-4': completeBaseValue,
+      'a-5': completeBaseValue,
+    },
+    editableScope: { overallEditable: false, editableArticleIds: ['a-5'] },
+    progress: { totalArticles: 5, filledArticles: 0, overallCompleted: false },
+  })
+
+  assert.deepEqual(revisionDraftProgressPresentation(revision, serverDraft), {
+    articleLabel: '修订法条进度 0 / 5',
+    overallLabel: '整体信息：待保存',
+  })
+  assert.deepEqual(revisionDraftProgressPresentation(revision, {
+    ...serverDraft,
+    progress: { ...serverDraft.progress, filledArticles: 4 },
+  }), {
+    articleLabel: '修订法条进度 4 / 5',
+    overallLabel: '整体信息：待保存',
+  })
+})
+
+test('修订整体信息状态仅在原范围包含整体时读取服务器 progress', () => {
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: true,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+  assert.deepEqual(revisionDraftProgressPresentation(revision, draft({
+    progress: { totalArticles: 1, filledArticles: 1, overallCompleted: true },
+  })), {
+    articleLabel: '修订法条进度 1 / 1',
+    overallLabel: '整体信息：已保存',
+  })
+  assert.deepEqual(revisionDraftProgressPresentation({
+    ...revision,
+    revisionScope: { ...revision.revisionScope, overall: false },
+  }, draft({
+    progress: { totalArticles: 1, filledArticles: 1, overallCompleted: false },
+  })), {
+    articleLabel: '修订法条进度 1 / 1',
+    overallLabel: null,
+  })
+})
+
+test('deletion-only 使用中性进度提示且不改变提交资格，普通任务不产生修订摘要', () => {
+  const deletionOnly = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: false, articleIds: [], mandatoryArticleIds: [],
+    },
+  }
+  const serverDraft = draft({
+    editableScope: { overallEditable: false, editableArticleIds: [] },
+    progress: { totalArticles: 0, filledArticles: 0, overallCompleted: true },
+  })
+  assert.deepEqual(revisionDraftProgressPresentation(deletionOnly, serverDraft), {
+    articleLabel: '无需要手工保存的法条',
+    overallLabel: null,
+  })
+  assert.equal(annotationSubmissionAction(deletionOnly, serverDraft), 'review')
+  assert.equal(revisionDraftProgressPresentation(task, serverDraft), null)
 })
 
 test('修订单项状态只表达 editableScope、原范围和 mandatory 角色', () => {
