@@ -3,7 +3,10 @@ import test from 'node:test'
 
 import {
   buildRevisionTaskPayload,
+  failedRevisionAnnotatorState,
+  loadedRevisionAnnotatorState,
   orderedRevisionArticles,
+  resetRevisionAnnotatorState,
   revisionScopeArticles,
   revisionCandidateKind,
   validateRevisionScope,
@@ -34,6 +37,18 @@ const detail = {
   createdAt: '2026-08-27T00:00:00Z',
   updatedAt: '2026-08-27T00:00:00Z',
 }
+
+const annotatorOne = {
+  id: 'annotator-1', loginAccount: 'annotator-1', name: '标注员一',
+  role: 'ANNOTATOR', enabled: true,
+  createdAt: '2026-08-27T00:00:00Z', updatedAt: '2026-08-27T00:00:00Z',
+}
+const annotatorTwo = {
+  id: 'annotator-2', loginAccount: 'annotator-2', name: '标注员二',
+  role: 'ANNOTATOR', enabled: true,
+  createdAt: '2026-08-27T00:00:00Z', updatedAt: '2026-08-27T00:00:00Z',
+}
+const disabledAnnotator = { ...annotatorOne, id: 'annotator-disabled', enabled: false }
 
 test('修订候选只接受正式完成和待正文修订法律', () => {
   assert.equal(revisionCandidateKind('COMPLETED'), 'ANNOTATION_ONLY')
@@ -81,6 +96,56 @@ test('修订创建 payload 只包含客户端业务字段且正文变化固定�
     articleIds: ['client-must-not-send-this'],
   }), {
     lawId: 'law-2', annotatorId: 'annotator-1', overall: false, articleIds: [],
+  })
+})
+
+test('标注员重新加载失败和 reset 都清除旧候选、选择及错误状态', () => {
+  const firstSuccess = loadedRevisionAnnotatorState(
+    [annotatorOne],
+    '',
+    false,
+  )
+  assert.deepEqual(firstSuccess, {
+    annotators: [annotatorOne], annotatorId: '', annotatorsError: '',
+  })
+
+  const failed = failedRevisionAnnotatorState('候选标注员加载失败，请稍后重试')
+  assert.deepEqual(failed, {
+    annotators: [], annotatorId: '', annotatorsError: '候选标注员加载失败，请稍后重试',
+  })
+
+  assert.deepEqual(resetRevisionAnnotatorState(), {
+    annotators: [], annotatorId: '', annotatorsError: '',
+  })
+})
+
+test('标注员重新加载成功只采用最新候选并清除已失效选择', () => {
+  assert.deepEqual(loadedRevisionAnnotatorState(
+    [annotatorTwo, disabledAnnotator],
+    annotatorOne.id,
+    true,
+  ), {
+    annotators: [annotatorTwo], annotatorId: '', annotatorsError: '',
+  })
+  assert.deepEqual(loadedRevisionAnnotatorState(
+    [annotatorTwo],
+    annotatorTwo.id,
+    true,
+  ), {
+    annotators: [annotatorTwo], annotatorId: annotatorTwo.id, annotatorsError: '',
+  })
+})
+
+test('标注员加载状态只替换 annotator 字段，不清空其他有效修订表单输入', () => {
+  const form = {
+    candidateKind: 'ANNOTATION_ONLY', lawId: 'law-1', annotatorId: annotatorOne.id,
+    taskName: '修订任务', remark: '保留备注', overall: true, articleIds: ['article-1'],
+  }
+  const next = failedRevisionAnnotatorState('候选标注员加载失败，请稍后重试')
+  const nextForm = { ...form, annotatorId: next.annotatorId }
+  assert.deepEqual(nextForm, {
+    candidateKind: 'ANNOTATION_ONLY', lawId: 'law-1', annotatorId: '',
+    taskName: '修订任务', remark: '保留备注', overall: true, articleIds: ['article-1'],
   })
 })
 

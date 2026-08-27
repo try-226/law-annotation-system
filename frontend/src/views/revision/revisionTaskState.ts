@@ -1,4 +1,5 @@
 import type { LawArticle, LawDetail, LawDisplayStatus, LawStructureNode } from '../../types/law'
+import type { User } from '../../api/types'
 import type {
   CreateRevisionTaskPayload,
   RevisionMode,
@@ -15,6 +16,33 @@ export interface RevisionTaskFormInput {
   remark: string
   overall: boolean
   articleIds: string[]
+}
+
+export interface RevisionAnnotatorState {
+  annotators: User[]
+  annotatorId: string
+  annotatorsError: string
+}
+
+export function resetRevisionAnnotatorState(): RevisionAnnotatorState {
+  return { annotators: [], annotatorId: '', annotatorsError: '' }
+}
+
+export function loadedRevisionAnnotatorState(
+  users: User[],
+  currentAnnotatorId: string,
+  preserveSelection: boolean,
+): RevisionAnnotatorState {
+  const annotators = users.filter((user) => user.role === 'ANNOTATOR' && user.enabled)
+  const annotatorId = preserveSelection
+    && annotators.some((user) => user.id === currentAnnotatorId)
+    ? currentAnnotatorId
+    : ''
+  return { annotators, annotatorId, annotatorsError: '' }
+}
+
+export function failedRevisionAnnotatorState(error: string): RevisionAnnotatorState {
+  return { annotators: [], annotatorId: '', annotatorsError: error }
 }
 
 export function revisionCandidateKind(

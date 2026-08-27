@@ -11,8 +11,12 @@ import type { TaskDetail } from '../../types/task'
 import { fieldErrors, parseFailure, safeErrorMessage } from '../../utils/errors'
 import {
   buildRevisionTaskPayload,
+  failedRevisionAnnotatorState,
+  loadedRevisionAnnotatorState,
   orderedRevisionArticles,
+  resetRevisionAnnotatorState,
   revisionCandidateKind,
+  type RevisionAnnotatorState,
   type RevisionCandidateKind,
   validateRevisionScope,
 } from './revisionTaskState'
@@ -54,6 +58,12 @@ const orderedArticles = computed(() => selectedLaw.value
   ? orderedRevisionArticles(selectedLaw.value)
   : [])
 
+function applyAnnotatorState(state: RevisionAnnotatorState): void {
+  annotators.value = state.annotators
+  form.annotatorId = state.annotatorId
+  annotatorsError.value = state.annotatorsError
+}
+
 function reset(): void {
   Object.assign(form, {
     candidateKind: 'ANNOTATION_ONLY', lawId: '', annotatorId: '',
@@ -69,6 +79,7 @@ function reset(): void {
   lawsLoading.value = false
   detailLoading.value = false
   annotatorsLoading.value = false
+  applyAnnotatorState(resetRevisionAnnotatorState())
   detailError.value = ''
 }
 
@@ -159,6 +170,7 @@ async function selectLaw(law: LawListItem): Promise<void> {
 async function loadAnnotators(preserveSelection = false): Promise<void> {
   const sequence = ++annotatorSequence
   annotatorsLoading.value = true
+  annotators.value = []
   annotatorsError.value = ''
   try {
     const collected: User[] = []
@@ -171,13 +183,16 @@ async function loadAnnotators(preserveSelection = false): Promise<void> {
       page += 1
     }
     if (sequence !== annotatorSequence || !props.open) return
-    annotators.value = collected
-    if (!preserveSelection || !collected.some((user) => user.id === form.annotatorId)) {
-      form.annotatorId = ''
-    }
+    applyAnnotatorState(loadedRevisionAnnotatorState(
+      collected,
+      form.annotatorId,
+      preserveSelection,
+    ))
   } catch (error: unknown) {
     if (sequence !== annotatorSequence || !props.open) return
-    annotatorsError.value = safeErrorMessage(error, '候选标注员加载失败，请稍后重试')
+    applyAnnotatorState(failedRevisionAnnotatorState(
+      safeErrorMessage(error, '候选标注员加载失败，请稍后重试'),
+    ))
   } finally {
     if (sequence === annotatorSequence) annotatorsLoading.value = false
   }

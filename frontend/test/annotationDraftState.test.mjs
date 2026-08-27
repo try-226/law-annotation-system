@@ -143,7 +143,7 @@ test('修订单项状态只表达 editableScope、原范围和 mandatory 角色'
   assert.equal(revisionTargetStatus(task, { kind: 'article', articleId: 'a-1' }, editable), null)
 })
 
-test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复基础标注', () => {
+test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复服务器基准', () => {
   assert.deepEqual(annotationClearPresentation('ORDINARY', '第一条'), {
     actionLabel: '清空当前标注',
     title: '确认清空当前标注',
@@ -155,9 +155,9 @@ test('清除操作为普通任务保留清空语义，为修订任务表达撤�
   assert.deepEqual(annotationClearPresentation('REVISION', '整体信息'), {
     actionLabel: '撤销本次修订',
     title: '确认撤销本次修订',
-    description: '将撤销“整体信息”本轮已保存的修订内容，并恢复显示上一正式标注结果。恢复后，如果该项仍属于当前可编辑范围，需要重新保存后才能提交审核。',
+    description: '将撤销“整体信息”本轮已保存的修订内容，并恢复服务器提供的修订基准内容。对于新增法条，撤销后标注内容可能为空。如果该项仍属于当前可编辑范围，需要重新保存后才能提交审核。',
     confirmLabel: '确认撤销',
-    successMessage: '整体信息本次修订已撤销，已恢复上一正式标注结果',
+    successMessage: '整体信息本次修订已撤销，已恢复服务器基准内容',
     errorFallback: '撤销本次修订失败，请稍后重试',
   })
 })
