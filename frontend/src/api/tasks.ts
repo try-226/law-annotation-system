@@ -4,6 +4,7 @@ import type { ApiResponse, PageResponse } from './types'
 import type {
   CancelTaskPayload,
   CreateOrdinaryTaskPayload,
+  CreateRevisionTaskPayload,
   TaskDetail,
   TaskListItem,
   TaskQuery,
@@ -27,6 +28,17 @@ export async function createOrdinaryTask(
   const { data } = await csrfRequest<ApiResponse<TaskDetail>>({
     method: 'POST',
     url: '/tasks/ordinary',
+    data: payload,
+  })
+  return data.data
+}
+
+export async function createRevisionTask(
+  payload: CreateRevisionTaskPayload,
+): Promise<TaskDetail> {
+  const { data } = await csrfRequest<ApiResponse<TaskDetail>>({
+    method: 'POST',
+    url: '/tasks/revision',
     data: payload,
   })
   return data.data

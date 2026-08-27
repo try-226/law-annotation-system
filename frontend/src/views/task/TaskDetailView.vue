@@ -5,12 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { cancelTask, getTask, startTask } from '../../api/tasks'
 import type { ValidityStatus } from '../../types/law'
 import type { TaskDetail } from '../../types/task'
-import { formatTaskDateTime, isCancelableTaskState, TASK_TYPE_LABELS } from '../../types/task'
+import { annotatorTaskActionLabel, formatTaskDateTime, isCancelableTaskState, TASK_TYPE_LABELS } from '../../types/task'
 import { authState } from '../../state/auth'
 import { notify } from '../../state/notifications'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
 import CancelTaskModal from './CancelTaskModal.vue'
 import TaskStatusBadge from './TaskStatusBadge.vue'
+import { revisionScopeArticles } from '../revision/revisionTaskState'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,9 +29,9 @@ const backRouteName = computed(() => (isAdmin.value ? 'admin-tasks' : 'my-tasks'
 const taskId = computed(() => String(route.params.taskId ?? ''))
 const annotatorWorkbenchLabel = computed(() => {
   if (!task.value) return '查看'
-  // 部分驳回在 PR13 只读是当前 editableScope 的能力边界，不重定义 TaskState。
-  return task.value.taskState === 'ANNOTATING' ? '继续标注' : '查看标注'
+  return annotatorTaskActionLabel(task.value.taskType, task.value.taskState)
 })
+const revisionArticles = computed(() => task.value ? revisionScopeArticles(task.value) : [])
 
 const validityLabels: Record<ValidityStatus, string> = {
   ACTIVE: '现行有效', NOT_EFFECTIVE: '尚未生效', INVALID: '失效', REPEALED: '已废止',
@@ -108,7 +109,7 @@ onMounted(loadTask)
       <section class="panel detail-hero">
         <div><div class="detail-title-row"><h1>{{ task.taskName }}</h1><TaskStatusBadge :state="task.taskState" /></div><p class="detail-meta">{{ TASK_TYPE_LABELS[task.taskType] }} · {{ task.lawBaseInfoSnapshot.name }} · {{ task.annotatorName }}</p></div>
         <div class="detail-actions">
-          <button v-if="!isAdmin && task.taskState === 'PENDING_ANNOTATION'" class="button button--primary" type="button" :disabled="starting" @click="startCurrentTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : '开始标注' }}</button>
+          <button v-if="!isAdmin && task.taskState === 'PENDING_ANNOTATION'" class="button button--primary" type="button" :disabled="starting" @click="startCurrentTask"><span v-if="starting" class="spinner" />{{ starting ? '开始中…' : annotatorWorkbenchLabel }}</button>
           <RouterLink v-else-if="!isAdmin" class="button button--primary" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ annotatorWorkbenchLabel }}</RouterLink>
           <RouterLink
             v-if="isAdmin && (task.taskState === 'PENDING_REVIEW' || task.taskState === 'PENDING_REREVIEW')"
@@ -122,6 +123,26 @@ onMounted(loadTask)
       <div class="detail-grid">
         <section class="panel detail-card"><h2>任务信息</h2><dl class="definition-grid"><div><dt>任务类型</dt><dd>{{ TASK_TYPE_LABELS[task.taskType] }}</dd></div><div><dt>标注员</dt><dd>{{ task.annotatorName }}</dd></div><div><dt>创建时间</dt><dd>{{ formatTaskDateTime(task.createdAt) }}</dd></div><div><dt>更新时间</dt><dd>{{ formatTaskDateTime(task.updatedAt) }}</dd></div><div><dt>绑定内容版本</dt><dd>C{{ task.contentVersionSnapshot.seq }}</dd></div><div><dt>快照法条数量</dt><dd>{{ task.contentVersionSnapshot.articles.length }} 条</dd></div></dl></section>
         <section class="panel detail-card"><h2>法律快照</h2><dl class="definition-grid"><div><dt>法律名称</dt><dd>{{ task.lawBaseInfoSnapshot.name }}</dd></div><div><dt>发布机关</dt><dd>{{ task.lawBaseInfoSnapshot.issuingAuthority }}</dd></div><div><dt>发布日期</dt><dd>{{ task.lawBaseInfoSnapshot.publicationDate }}</dd></div><div><dt>效力状态</dt><dd>{{ validityLabels[task.lawBaseInfoSnapshot.validityStatus] }}</dd></div><div><dt>结构节点</dt><dd>{{ task.structureSnapshot.length }} 个</dd></div><div><dt>内容版本ID</dt><dd>{{ task.contentVersionId }}</dd></div></dl></section>
+        <section v-if="task.taskType === 'REVISION'" class="panel detail-card detail-card--full">
+          <h2>修订范围</h2>
+          <div v-if="task.revisionScope" class="revision-detail-scope">
+            <dl class="definition-grid">
+              <div><dt>修订类型</dt><dd>{{ task.revisionScope.mode === 'CONTENT_CHANGE' ? '正文变化型' : '标注修正型' }}</dd></div>
+              <div><dt>整体信息</dt><dd>{{ task.revisionScope.overall ? '在修订范围内' : '不在修订范围内' }}</dd></div>
+              <div><dt>基础标注版本</dt><dd>{{ task.baseAnnotationVersionId || '--' }}</dd></div>
+              <div><dt>范围法条</dt><dd>{{ revisionArticles.length }} 条</dd></div>
+            </dl>
+            <div v-if="revisionArticles.length" class="revision-detail-articles">
+              <span v-for="article in revisionArticles" :key="article.articleId" class="revision-detail-article">
+                {{ article.label }}
+                <small v-if="article.mandatory">正文变化必须重新标注</small>
+              </span>
+            </div>
+            <p v-else class="revision-empty-scope">范围法条为空是合法修订范围；例如正文删除场景可直接提交审核。</p>
+            <p v-if="task.revisionScope.mandatoryArticleIds.length" class="revision-mandatory-note">mandatory 法条由服务器根据正文变化确定，前端只读展示，不能取消。</p>
+          </div>
+          <p v-else class="revision-empty-scope">服务器未返回修订范围，当前任务不能作为可编辑修订任务处理。</p>
+        </section>
         <section class="panel detail-card detail-card--full"><h2>任务备注</h2><p class="remark-copy">{{ task.remark || '无' }}</p></section>
         <section v-if="task.taskState === 'CANCELED'" class="panel detail-card detail-card--full"><h2>取消信息</h2><div class="cancel-summary"><p>{{ task.cancelReason || '未提供取消原因' }}</p><dl class="definition-grid"><div><dt>取消时间</dt><dd>{{ formatTaskDateTime(task.canceledAt) }}</dd></div></dl></div></section>
       </div>

@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  annotationClearPresentation,
+  annotationSubmissionAction,
+  articleCompletionForTask,
+  canEditAnnotationTarget,
   createArticleForm,
   createOverallForm,
   decideAnnotationNavigation,
@@ -9,11 +13,16 @@ import {
   isArticleDraftComplete,
   parseAnnotationLocator,
   reconcileSavedForm,
+  revisionDraftProgressPresentation,
+  revisionTargetStatus,
+  reviewIssueTarget,
   sameWorkbenchSession,
   selectInitialTarget,
+  shouldShowRequiredMarker,
 } from '../src/views/annotation/annotationDraftState.ts'
 
 const task = {
+  taskType: 'ORDINARY',
   taskState: 'ANNOTATING',
   contentVersionSnapshot: {
     articles: [
@@ -42,6 +51,8 @@ function draft(overrides = {}) {
     progress: { totalArticles: 2, filledArticles: 0, overallCompleted: false },
     revision: 0,
     updatedAt: null,
+    editableScope: { overallEditable: true, editableArticleIds: ['a-1', 'a-2'] },
+    reviewIssues: [],
     ...overrides,
   }
 }
@@ -86,6 +97,213 @@ test('单条完成状态只读取服务器已保存草稿和字段快照', () =>
   }), false)
 })
 
+test('普通任务继续按完整字段显示已完成，修订任务不把合并的基础值当作本轮完成', () => {
+  const completeBaseValue = {
+    itemType: 'DEFINITION', keywords: '基础标注', subjects: null,
+    legalLiability: null, annotationNote: null,
+  }
+  assert.equal(isArticleDraftComplete(task.fieldConfigSnapshot.article, completeBaseValue), true)
+  assert.equal(articleCompletionForTask('ORDINARY', task.fieldConfigSnapshot.article, completeBaseValue), true)
+  assert.equal(articleCompletionForTask('REVISION', task.fieldConfigSnapshot.article, completeBaseValue), null)
+
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: true,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+  assert.equal(revisionTargetStatus(
+    revision,
+    { kind: 'article', articleId: 'a-1' },
+    draft({ articleDrafts: { 'a-1': completeBaseValue } }),
+  ), '当前可修改')
+})
+
+test('修订保存进度只读取服务器 progress，不读取合并后的 articleDrafts 或 editableScope', () => {
+  const completeBaseValue = {
+    itemType: 'DEFINITION', keywords: '基础标注', subjects: null,
+    legalLiability: null, annotationNote: null,
+  }
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    taskState: 'PARTIALLY_REJECTED',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: true,
+      articleIds: ['a-1', 'a-2', 'a-3', 'a-4', 'a-5'], mandatoryArticleIds: [],
+    },
+  }
+  const serverDraft = draft({
+    articleDrafts: {
+      'a-1': completeBaseValue,
+      'a-2': completeBaseValue,
+      'a-3': completeBaseValue,
+      'a-4': completeBaseValue,
+      'a-5': completeBaseValue,
+    },
+    editableScope: { overallEditable: false, editableArticleIds: ['a-5'] },
+    progress: { totalArticles: 5, filledArticles: 0, overallCompleted: false },
+  })
+
+  assert.deepEqual(revisionDraftProgressPresentation(revision, serverDraft), {
+    articleLabel: '修订法条进度 0 / 5',
+    overallLabel: '整体信息：待保存',
+  })
+  assert.deepEqual(revisionDraftProgressPresentation(revision, {
+    ...serverDraft,
+    progress: { ...serverDraft.progress, filledArticles: 4 },
+  }), {
+    articleLabel: '修订法条进度 4 / 5',
+    overallLabel: '整体信息：待保存',
+  })
+})
+
+test('修订整体信息状态仅在原范围包含整体时读取服务器 progress', () => {
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: true,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+  assert.deepEqual(revisionDraftProgressPresentation(revision, draft({
+    progress: { totalArticles: 1, filledArticles: 1, overallCompleted: true },
+  })), {
+    articleLabel: '修订法条进度 1 / 1',
+    overallLabel: '整体信息：已保存',
+  })
+  assert.deepEqual(revisionDraftProgressPresentation({
+    ...revision,
+    revisionScope: { ...revision.revisionScope, overall: false },
+  }, draft({
+    progress: { totalArticles: 1, filledArticles: 1, overallCompleted: false },
+  })), {
+    articleLabel: '修订法条进度 1 / 1',
+    overallLabel: null,
+  })
+})
+
+test('deletion-only 使用中性进度提示且不改变提交资格，普通任务不产生修订摘要', () => {
+  const deletionOnly = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: false, articleIds: [], mandatoryArticleIds: [],
+    },
+  }
+  const serverDraft = draft({
+    editableScope: { overallEditable: false, editableArticleIds: [] },
+    progress: { totalArticles: 0, filledArticles: 0, overallCompleted: true },
+  })
+  assert.deepEqual(revisionDraftProgressPresentation(deletionOnly, serverDraft), {
+    articleLabel: '无需要手工保存的法条',
+    overallLabel: null,
+  })
+  assert.equal(annotationSubmissionAction(deletionOnly), 'review')
+  assert.equal(revisionDraftProgressPresentation(task, serverDraft), null)
+})
+
+test('修订单项状态只表达 editableScope、原范围和 mandatory 角色', () => {
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'CONTENT_CHANGE', overall: true,
+      articleIds: ['a-1', 'a-2'], mandatoryArticleIds: ['a-1'],
+    },
+  }
+  const editable = draft({
+    editableScope: { overallEditable: true, editableArticleIds: ['a-1', 'a-2'] },
+  })
+  assert.equal(revisionTargetStatus(revision, { kind: 'overall' }, editable), '当前可修改')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-1' }, editable), '必修订·当前可修改')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-2' }, editable), '当前可修改')
+
+  const readonly = draft({ editableScope: { overallEditable: false, editableArticleIds: [] } })
+  assert.equal(revisionTargetStatus(revision, { kind: 'overall' }, readonly), '原修订范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-1' }, readonly), '正文变化范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'a-2' }, readonly), '原修订范围·只读')
+  assert.equal(revisionTargetStatus(revision, { kind: 'article', articleId: 'outside' }, readonly), '范围外·只读')
+  assert.equal(revisionTargetStatus(task, { kind: 'article', articleId: 'a-1' }, editable), null)
+})
+
+test('required 红星按任务阶段与服务器当前可编辑范围展示，不改变字段配置', () => {
+  const requiredConfig = [{ fieldKey: 'keywords', required: true }]
+  const optionalConfig = [{ fieldKey: 'keywords', required: false }]
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    revisionScope: {
+      mode: 'ANNOTATION_ONLY', overall: false,
+      articleIds: ['a-1'], mandatoryArticleIds: [],
+    },
+  }
+
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'overall' }, requiredConfig, 'keywords', true,
+  ), false)
+  assert.equal(shouldShowRequiredMarker(
+    { ...revision, revisionScope: { ...revision.revisionScope, overall: true } },
+    { kind: 'overall' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords', true,
+  ), false)
+  assert.equal(shouldShowRequiredMarker(
+    revision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+  ), true)
+
+  const rejectedRevision = { ...revision, taskState: 'PARTIALLY_REJECTED' }
+  assert.equal(shouldShowRequiredMarker(
+    rejectedRevision, { kind: 'article', articleId: 'a-2' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    rejectedRevision, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', false,
+  ), false)
+
+  const rejectedOrdinary = { ...task, taskState: 'PARTIALLY_REJECTED' }
+  assert.equal(shouldShowRequiredMarker(
+    rejectedOrdinary, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'overall' }, requiredConfig, 'keywords', true,
+  ), true)
+  assert.equal(shouldShowRequiredMarker(
+    task, { kind: 'article', articleId: 'a-1' }, optionalConfig, 'keywords', true,
+  ), false)
+
+  for (const taskState of ['PENDING_REVIEW', 'PENDING_REREVIEW', 'APPROVED', 'CANCELED']) {
+    assert.equal(shouldShowRequiredMarker(
+      { ...task, taskState }, { kind: 'overall' }, requiredConfig, 'keywords', true,
+    ), false)
+    assert.equal(shouldShowRequiredMarker(
+      { ...revision, taskState }, { kind: 'article', articleId: 'a-1' }, requiredConfig, 'keywords', true,
+    ), false)
+  }
+})
+
+test('清除操作为普通任务保留清空语义，为修订任务表达撤销并恢复服务器基准', () => {
+  assert.deepEqual(annotationClearPresentation('ORDINARY', '第一条'), {
+    actionLabel: '清空当前标注',
+    title: '确认清空当前标注',
+    description: '确定清空“第一条”已保存的标注吗？该区域会恢复为未完成状态。',
+    confirmLabel: '确认清空',
+    successMessage: '第一条标注已清空',
+    errorFallback: '清空标注失败，请稍后重试',
+  })
+  assert.deepEqual(annotationClearPresentation('REVISION', '整体信息'), {
+    actionLabel: '撤销本次修订',
+    title: '确认撤销本次修订',
+    description: '将撤销“整体信息”本轮已保存的修订内容，并恢复服务器提供的修订基准内容。对于新增法条，撤销后标注内容可能为空。如果该项仍属于当前可编辑范围，需要重新保存后才能提交审核。',
+    confirmLabel: '确认撤销',
+    successMessage: '整体信息本次修订已撤销，已恢复服务器基准内容',
+    errorFallback: '撤销本次修订失败，请稍后重试',
+  })
+})
+
 test('表单副本可准确识别真实差异并不修改服务器值', () => {
   const savedOverall = { lawCategory: '民事', overallKeywords: '合同', summary: null, overallNote: null }
   const baseline = createOverallForm(savedOverall)
@@ -106,7 +324,101 @@ test('422 locator 可解析为整体或具体法条目标', () => {
   assert.deepEqual(parseAnnotationLocator('articles.a-2.keywords'), {
     target: { kind: 'article', articleId: 'a-2' }, fieldKey: 'keywords',
   })
+  assert.deepEqual(parseAnnotationLocator('overall'), {
+    target: { kind: 'overall' }, fieldKey: '',
+  })
+  assert.deepEqual(parseAnnotationLocator('articles.a-2'), {
+    target: { kind: 'article', articleId: 'a-2' }, fieldKey: '',
+  })
   assert.equal(parseAnnotationLocator('unknown.path'), null)
+})
+
+test('reviewIssues locator 可定位整体或真实法条', () => {
+  assert.deepEqual(reviewIssueTarget({ type: 'OVERALL', articleId: null }), { kind: 'overall' })
+  assert.deepEqual(reviewIssueTarget({ type: 'ARTICLE', articleId: 'a-2' }), {
+    kind: 'article', articleId: 'a-2',
+  })
+  assert.equal(reviewIssueTarget({ type: 'ARTICLE', articleId: null }), null)
+})
+
+test('普通任务继续沿用已有草稿初始定位规则', () => {
+  const ordinary = { ...task, taskType: 'ORDINARY' }
+  assert.deepEqual(selectInitialTarget(ordinary, draft()), { kind: 'overall' })
+})
+
+test('修订任务初始位置只读取 editableScope 并按目录 DFS 选择首个可编辑法条', () => {
+  const revision = {
+    ...task,
+    taskType: 'REVISION',
+    taskState: 'PARTIALLY_REJECTED',
+    structureSnapshot: [
+      { nodeId: 'chapter-2', type: 'CHAPTER', title: '第二章', parentNodeId: null, order: 2, articleIds: ['a-2'] },
+      { nodeId: 'chapter-1', type: 'CHAPTER', title: '第一章', parentNodeId: null, order: 1, articleIds: ['a-1'] },
+    ],
+    revisionScope: { mode: 'ANNOTATION_ONLY', overall: true, articleIds: ['a-1', 'a-2'], mandatoryArticleIds: [] },
+  }
+  const response = draft({ editableScope: { overallEditable: false, editableArticleIds: ['a-2'] } })
+  assert.deepEqual(selectInitialTarget(revision, response), { kind: 'article', articleId: 'a-2' })
+  assert.deepEqual(selectInitialTarget(revision, {
+    ...response, editableScope: { overallEditable: false, editableArticleIds: ['a-1', 'a-2'] },
+  }), { kind: 'article', articleId: 'a-1' })
+  assert.deepEqual(selectInitialTarget(revision, {
+    ...response, editableScope: { overallEditable: true, editableArticleIds: ['a-2'] },
+  }), { kind: 'overall' })
+  assert.deepEqual(selectInitialTarget(revision, {
+    ...response, editableScope: { overallEditable: false, editableArticleIds: [] },
+  }), { kind: 'overall' })
+})
+
+test('修订编辑权限和提交动作严格按 taskType、taskState 与 editableScope 决定', () => {
+  const articleOnly = {
+    ...task,
+    taskType: 'REVISION',
+    taskState: 'ANNOTATING',
+    revisionScope: { mode: 'ANNOTATION_ONLY', overall: false, articleIds: ['a-1'], mandatoryArticleIds: [] },
+  }
+  const articleDraft = draft({ editableScope: { overallEditable: false, editableArticleIds: ['a-1'] } })
+  assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'overall' }, articleDraft), false)
+  assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
+  assert.equal(canEditAnnotationTarget(articleOnly, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
+  assert.equal(annotationSubmissionAction(articleOnly), 'review')
+
+  const deletionOnly = {
+    ...articleOnly,
+    revisionScope: { mode: 'CONTENT_CHANGE', overall: false, articleIds: [], mandatoryArticleIds: [] },
+  }
+  assert.equal(annotationSubmissionAction(deletionOnly), 'review')
+
+  const rejected = { ...articleOnly, taskState: 'PARTIALLY_REJECTED' }
+  assert.equal(annotationSubmissionAction(rejected), 'rereview')
+  assert.equal(canEditAnnotationTarget(rejected, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
+  assert.equal(canEditAnnotationTarget(rejected, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
+
+  const ordinaryRejected = {
+    ...task, taskType: 'ORDINARY', taskState: 'PARTIALLY_REJECTED', revisionScope: null,
+  }
+  const overallIssueDraft = draft({
+    editableScope: { overallEditable: true, editableArticleIds: [] },
+  })
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'overall' }, overallIssueDraft), true)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-1' }, overallIssueDraft), false)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'overall' }, articleDraft), false)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-1' }, articleDraft), true)
+  assert.equal(canEditAnnotationTarget(ordinaryRejected, { kind: 'article', articleId: 'a-2' }, articleDraft), false)
+  assert.equal(annotationSubmissionAction(ordinaryRejected), 'rereview')
+
+  const ordinaryAnnotating = { ...ordinaryRejected, taskState: 'ANNOTATING' }
+  assert.equal(annotationSubmissionAction(ordinaryAnnotating), 'review')
+  assert.equal(annotationSubmissionAction({ ...articleOnly, revisionScope: null }), null)
+
+  for (const state of ['PENDING_REVIEW', 'PENDING_REREVIEW', 'APPROVED', 'CANCELED']) {
+    const ordinaryReadonly = { ...ordinaryRejected, taskState: state }
+    const revisionReadonly = { ...articleOnly, taskState: state }
+    assert.equal(canEditAnnotationTarget(ordinaryReadonly, { kind: 'article', articleId: 'a-1' }, articleDraft), false)
+    assert.equal(canEditAnnotationTarget(revisionReadonly, { kind: 'article', articleId: 'a-1' }, articleDraft), false)
+    assert.equal(annotationSubmissionAction(ordinaryReadonly), null)
+    assert.equal(annotationSubmissionAction(revisionReadonly), null)
+  }
 })
 
 test('未保存状态下切换任务路由必须先确认', () => {

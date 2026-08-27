@@ -3,13 +3,14 @@ import type { OverallDraftForm } from '../../types/annotation'
 import { LAW_CATEGORY_OPTIONS } from '../../types/annotation'
 import type { ValidityStatus } from '../../types/law'
 import type { TaskDetail } from '../../types/task'
-import { isFieldRequired } from './annotationDraftState'
+import { shouldShowRequiredMarker } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
   modelValue: OverallDraftForm
   errors: Record<string, string>
   editable: boolean
+  revisionStatus: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: OverallDraftForm] }>()
@@ -23,7 +24,13 @@ function update(field: keyof OverallDraftForm, value: string): void {
 }
 
 function required(field: keyof OverallDraftForm): boolean {
-  return isFieldRequired(props.task.fieldConfigSnapshot.overall, field)
+  return shouldShowRequiredMarker(
+    props.task,
+    { kind: 'overall' },
+    props.task.fieldConfigSnapshot.overall,
+    field,
+    props.editable,
+  )
 }
 </script>
 
@@ -31,7 +38,8 @@ function required(field: keyof OverallDraftForm): boolean {
   <div class="annotation-panel-content">
     <header class="annotation-panel-heading">
       <div><h2>整体信息</h2><p>法律基础信息只读，标注字段按任务创建时配置填写。</p></div>
-      <span class="annotation-state-pill" :class="{ complete: false }">整体标注</span>
+      <span v-if="revisionStatus" class="annotation-state-pill revision">{{ revisionStatus }}</span>
+      <span v-else class="annotation-state-pill">整体标注</span>
     </header>
 
     <dl class="annotation-law-meta">

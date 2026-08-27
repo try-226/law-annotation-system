@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ARTICLE_FIELD_LABELS, ITEM_TYPE_LABELS, type ArticleDraftForm } from '../../types/annotation'
 import type { TaskArticleSnapshot, TaskDetail } from '../../types/task'
-import { isFieldRequired } from './annotationDraftState'
+import { shouldShowRequiredMarker } from './annotationDraftState'
 
 const props = defineProps<{
   task: TaskDetail
@@ -11,6 +11,7 @@ const props = defineProps<{
   errors: Record<string, string>
   editable: boolean
   completed: boolean
+  revisionStatus: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: ArticleDraftForm] }>()
@@ -20,7 +21,13 @@ function update(field: keyof ArticleDraftForm, value: string): void {
 }
 
 function required(field: keyof ArticleDraftForm): boolean {
-  return isFieldRequired(props.task.fieldConfigSnapshot.article, field)
+  return shouldShowRequiredMarker(
+    props.task,
+    { kind: 'article', articleId: props.article.articleId },
+    props.task.fieldConfigSnapshot.article,
+    field,
+    props.editable,
+  )
 }
 </script>
 
@@ -28,7 +35,8 @@ function required(field: keyof ArticleDraftForm): boolean {
   <div class="annotation-panel-content">
     <header class="annotation-panel-heading">
       <div><h2>{{ article.number }}</h2><p>章节路径：{{ structurePath || '未归入结构节点' }}</p></div>
-      <span class="annotation-state-pill" :class="{ complete: completed }">{{ completed ? '已完成' : '未完成' }}</span>
+      <span v-if="revisionStatus" class="annotation-state-pill revision">{{ revisionStatus }}</span>
+      <span v-else class="annotation-state-pill" :class="{ complete: completed }">{{ completed ? '已完成' : '未完成' }}</span>
     </header>
     <section class="article-body"><p>{{ article.body }}</p></section>
 
