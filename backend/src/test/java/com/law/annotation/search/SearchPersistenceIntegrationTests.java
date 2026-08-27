@@ -41,10 +41,14 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.repository.support.MongoRepositoryFactory;
@@ -209,6 +213,67 @@ class SearchPersistenceIntegrationTests {
                 .containsExactly("law-1");
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("storedWhitespaceCases")
+    void persistedAdminSearchMatchesNormalizedQueryAcrossStoredWhitespace(
+            String caseName,
+            String storedBody,
+            String query) {
+        contentVersionRepository.insert(version(
+                "content-whitespace", "law-whitespace", storedBody, 1));
+        lawRepository.save(law(
+                "law-whitespace",
+                "空白匹配法律",
+                "content-whitespace",
+                null,
+                false));
+
+        assertThat(service.searchLaws(query, SearchScope.LAW_TEXT, 0, 10).items())
+                .as(caseName)
+                .singleElement()
+                .satisfies(hit -> {
+                    assertThat(hit.lawId()).isEqualTo("law-whitespace");
+                    assertThat(hit.hitField()).isEqualTo("article.body");
+                    assertThat(hit.snippet().substring(
+                            hit.highlightStart(), hit.highlightEnd()))
+                            .isEqualTo(storedBody);
+                });
+    }
+
+    @Test
+    void persistedWhitespacePatternKeepsRegexTokensLiteral() {
+        contentVersionRepository.insert(version(
+                "content-literal",
+                "law-literal",
+                "a.b a*b a[b a(b a+b a?b",
+                1));
+        contentVersionRepository.insert(version(
+                "content-regex-distractor",
+                "law-regex-distractor",
+                "axb ab axxb",
+                1));
+        lawRepository.save(law(
+                "law-literal", "字面量法律", "content-literal", null, false));
+        lawRepository.save(law(
+                "law-regex-distractor",
+                "正则干扰法律",
+                "content-regex-distractor",
+                null,
+                false));
+
+        for (String query : List.of("a.b", "a*b", "a[b", "a(b", "a+b", "a?b")) {
+            assertThat(service.searchLaws(
+                    query, SearchScope.LAW_TEXT, 0, 10).items())
+                    .singleElement()
+                    .satisfies(hit -> {
+                        assertThat(hit.lawId()).isEqualTo("law-literal");
+                        assertThat(hit.snippet().substring(
+                                hit.highlightStart(), hit.highlightEnd()))
+                                .isEqualTo(query);
+                    });
+        }
+    }
+
     @Test
     void persistedSemanticMismatchHidesOldAWithoutBlockingCurrentC() {
         lawRepository.save(law(
@@ -301,6 +366,34 @@ class SearchPersistenceIntegrationTests {
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo("TASK.NOT_FOUND");
+    }
+
+    private static Stream<Arguments> storedWhitespaceCases() {
+        return Stream.of(
+                Arguments.of(
+                        "single space",
+                        "WS行政机关 应当 依法 处理",
+                        "WS行政机关 应当 依法 处理"),
+                Arguments.of(
+                        "multiple spaces",
+                        "WS行政机关   应当  依法 处理",
+                        "WS行政机关 应当 依法 处理"),
+                Arguments.of(
+                        "LF",
+                        "WS行政机关\n应当依法处理",
+                        "WS行政机关 应当依法处理"),
+                Arguments.of(
+                        "CRLF",
+                        "WS行政机关\r\n应当 依法 处理",
+                        "WS行政机关 应当 依法 处理"),
+                Arguments.of(
+                        "Tab",
+                        "WS行政机关\t应当 依法 处理",
+                        "WS行政机关 应当 依法 处理"),
+                Arguments.of(
+                        "mixed whitespace",
+                        "WS行政机关\r\n应当\t依法  处理",
+                        " WS行政机关\n应当 依法\t处理 "));
     }
 
     private static ContentVersionDocument version(

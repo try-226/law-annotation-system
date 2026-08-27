@@ -50,7 +50,9 @@ public class SearchService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int SNIPPET_BEFORE = 32;
     private static final int SNIPPET_AFTER = 48;
-    private static final Pattern COMMON_TEXT_WHITESPACE = Pattern.compile("[\\r\\n\\t ]+");
+    private static final String COMMON_TEXT_WHITESPACE_REGEX = "[\\r\\n\\t ]+";
+    private static final Pattern COMMON_TEXT_WHITESPACE = Pattern.compile(
+            COMMON_TEXT_WHITESPACE_REGEX);
 
     private final SearchRepository searchRepository;
     private final ContentVersionRepository contentVersionRepository;
@@ -405,10 +407,17 @@ public class SearchService {
                             "page/size",
                             "page不能小于0，size须为1至100")));
         }
-        Pattern pattern = Pattern.compile(
-                Pattern.quote(normalized),
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        Pattern pattern = buildSearchPattern(normalized);
         return new SearchQuery(normalized, scope, pattern);
+    }
+
+    private static Pattern buildSearchPattern(String normalized) {
+        String literalTokens = COMMON_TEXT_WHITESPACE.splitAsStream(normalized)
+                .map(Pattern::quote)
+                .collect(Collectors.joining(COMMON_TEXT_WHITESPACE_REGEX));
+        return Pattern.compile(
+                literalTokens,
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 
     private static String validateIdentifier(String value) {
