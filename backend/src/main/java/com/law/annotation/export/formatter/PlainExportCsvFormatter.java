@@ -50,19 +50,8 @@ public class PlainExportCsvFormatter {
             if (index > 0) {
                 csv.append(',');
             }
-            csv.append(escape(values.get(index)));
+            csv.append(CsvCellEscaper.escape(values.get(index)));
         }
         csv.append(LINE_ENDING);
-    }
-
-    private static String escape(String value) {
-        String text = value == null ? "" : value;
-        if (text.indexOf(',') >= 0
-                || text.indexOf('"') >= 0
-                || text.indexOf('\r') >= 0
-                || text.indexOf('\n') >= 0) {
-            return '"' + text.replace("\"", "\"\"") + '"';
-        }
-        return text;
     }
 }

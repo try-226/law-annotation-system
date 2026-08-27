@@ -9,9 +9,14 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.law.annotation.annotation.ArticleDraftValues;
+import com.law.annotation.annotation.OverallDraftValues;
+import com.law.annotation.common.enums.ItemType;
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.export.dto.LawExportRequest;
+import com.law.annotation.export.formatter.FormalExportCsvFormatter;
+import com.law.annotation.export.formatter.FormalExportJsonFormatter;
 import com.law.annotation.export.formatter.PlainExportCsvFormatter;
 import com.law.annotation.export.formatter.PlainExportJsonFormatter;
 import com.law.annotation.law.ArticleSnapshot;
@@ -22,6 +27,8 @@ import com.law.annotation.law.LawRepository;
 import com.law.annotation.law.LawStructureNode;
 import com.law.annotation.law.LawStructureNodeType;
 import com.law.annotation.law.PendingChangeSet;
+import com.law.annotation.version.AnnotationVersionDocument;
+import com.law.annotation.version.AnnotationVersionRepository;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +36,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +53,7 @@ class ExportServiceTests {
 
     private LawRepository lawRepository;
     private ContentVersionRepository contentVersionRepository;
+    private AnnotationVersionRepository annotationVersionRepository;
     private ObjectMapper objectMapper;
     private ExportService service;
 
@@ -51,12 +61,16 @@ class ExportServiceTests {
     void setUp() {
         lawRepository = org.mockito.Mockito.mock(LawRepository.class);
         contentVersionRepository = org.mockito.Mockito.mock(ContentVersionRepository.class);
+        annotationVersionRepository = org.mockito.Mockito.mock(AnnotationVersionRepository.class);
         objectMapper = JsonMapper.builder().findAndAddModules().build();
         service = new ExportService(
                 lawRepository,
                 contentVersionRepository,
+                annotationVersionRepository,
                 new PlainExportCsvFormatter(),
-                new PlainExportJsonFormatter(objectMapper));
+                new PlainExportJsonFormatter(objectMapper),
+                new FormalExportCsvFormatter(),
+                new FormalExportJsonFormatter(objectMapper));
     }
 
     @Test
@@ -268,18 +282,205 @@ class ExportServiceTests {
     }
 
     @Test
-    void formalExportIsExplicitlyUnsupportedWithoutReadingLawData() {
-        LawExportRequest request = new LawExportRequest(
-                LawExportRequest.Scope.WHOLE,
-                List.of(),
-                LawExportRequest.Type.FORMAL,
-                LawExportRequest.Format.JSON);
+    void formalWholeJsonPairsCurrentCAndAAndIncludesApprovalMetadata() throws Exception {
+        LawDocument law = law("content-2", false, false, "annotation-2");
+        ContentVersionDocument content = version("content-2", 2, articles());
+        AnnotationVersionDocument annotation = annotation(
+                "annotation-2", "law-1", "content-2", articleResults());
+        givenCurrentFormalLaw(law, content, annotation);
 
-        assertThatThrownBy(() -> service.export("law-1", request))
-                .isInstanceOf(ApiException.class)
-                .extracting("code")
-                .isEqualTo(ExportErrorCodes.TYPE_UNSUPPORTED);
-        verify(lawRepository, never()).findById("law-1");
+        JsonNode json = objectMapper.readTree(service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON))
+                .content());
+
+        assertThat(json.path("semanticVersion").path("contentVersionId").asText())
+                .isEqualTo("content-2");
+        assertThat(json.path("annotationVersion").path("annotationVersionId").asText())
+                .isEqualTo("annotation-2");
+        assertThat(json.path("overallAnnotation").path("lawCategory").asText())
+                .isEqualTo("行政法");
+        assertThat(json.path("articles").get(0).path("itemType").asText())
+                .isEqualTo("RIGHTS_DUTIES");
+        assertThat(json.path("approvalMetadata").path("approvedBy").asText())
+                .isEqualTo("reviewer-1");
+        assertThat(json.path("approvalMetadata").path("sourceTaskId").asText())
+                .isEqualTo("task-1");
+    }
+
+    @Test
+    void formalSelectedJsonKeepsContentOrderAndOnlyRelatedStructure() throws Exception {
+        LawDocument law = law("content-2", false, false, "annotation-2");
+        givenCurrentFormalLaw(
+                law,
+                version("content-2", 2, articles()),
+                annotation("annotation-2", "law-1", "content-2", articleResults()));
+
+        JsonNode json = objectMapper.readTree(service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.SELECTED,
+                                List.of("article-3", "article-1"),
+                                LawExportRequest.Format.JSON))
+                .content());
+
+        assertThat(json.path("articles")).extracting(node -> node.path("articleId").asText())
+                .containsExactly("article-1", "article-3");
+        assertThat(json.path("structure")).extracting(node -> node.path("nodeId").asText())
+                .containsExactly("chapter-1", "section-1");
+        assertThat(articleIdsInStructure(json.path("structure")))
+                .containsExactlyInAnyOrder("article-1", "article-3");
+    }
+
+    @Test
+    void formalWholeAndSelectedCsvUseDedicatedColumnsAndEscapeValues() {
+        List<ArticleSnapshot> escapedArticles = List.of(
+                new ArticleSnapshot(
+                        "article-1", "第一条", "第一行,含\"引号\"\n第二行", 0),
+                new ArticleSnapshot("article-2", "第二条", "第二条正文", 1),
+                new ArticleSnapshot("article-3", "第三条", "第三条正文", 2));
+        Map<String, ArticleDraftValues> results = new LinkedHashMap<>(articleResults());
+        results.put("article-1", new ArticleDraftValues(
+                ItemType.RIGHTS_DUTIES,
+                "权利,义务",
+                "公民",
+                "责任\"说明\"",
+                "第一行\n第二行"));
+        LawDocument law = law("content-2", false, false, "annotation-2");
+        givenCurrentFormalLaw(
+                law,
+                version("content-2", 2, escapedArticles),
+                annotation("annotation-2", "law-1", "content-2", results));
+
+        ExportedFile whole = service.export(
+                "law-1",
+                formalRequest(
+                        LawExportRequest.Scope.WHOLE,
+                        List.of(),
+                        LawExportRequest.Format.CSV));
+        String wholeCsv = new String(whole.content(), StandardCharsets.UTF_8);
+        assertThat(whole.filename()).isEqualTo("law-law-1-formal.csv");
+        assertThat(wholeCsv).startsWith(
+                "lawId,lawName,issuingAuthority,publicationDate,validityStatus,"
+                        + "contentVersionId,contentVersionSeq,annotationVersionId,");
+        assertThat(wholeCsv).contains(
+                "\"第一行,含\"\"引号\"\"\n第二行\"",
+                "\"权利,义务\"",
+                "\"责任\"\"说明\"\"\"",
+                "\"第一行\n第二行\"");
+
+        String selectedCsv = new String(service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.SELECTED,
+                                List.of("article-3", "article-1"),
+                                LawExportRequest.Format.CSV))
+                .content(), StandardCharsets.UTF_8);
+        assertThat(selectedCsv.indexOf("article-1")).isLessThan(selectedCsv.indexOf("article-3"));
+        assertThat(selectedCsv).doesNotContain("article-2");
+    }
+
+    @Test
+    void formalExportRejectsMissingCrossLawMismatchedAndIncompleteAnnotations() {
+        ContentVersionDocument c2 = version("content-2", 2, articles());
+
+        LawDocument unannotated = law("content-2", false, false, null);
+        givenCurrentLaw(unannotated, c2);
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.FORMAL_UNAVAILABLE);
+
+        LawDocument law = law("content-2", false, false, "annotation-2");
+        givenCurrentLaw(law, c2);
+        when(annotationVersionRepository.findById("annotation-2")).thenReturn(Optional.empty());
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.ANNOTATION_INCONSISTENT);
+
+        when(annotationVersionRepository.findById("annotation-2"))
+                .thenReturn(Optional.of(annotation(
+                        "annotation-2", "other-law", "content-2", articleResults())));
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.ANNOTATION_INCONSISTENT);
+
+        when(annotationVersionRepository.findById("annotation-2"))
+                .thenReturn(Optional.of(annotation(
+                        "annotation-2", "law-1", "content-1", articleResults())));
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.VERSION_MISMATCH);
+
+        Map<String, ArticleDraftValues> incomplete = new LinkedHashMap<>(articleResults());
+        incomplete.remove("article-2");
+        when(annotationVersionRepository.findById("annotation-2"))
+                .thenReturn(Optional.of(annotation(
+                        "annotation-2", "law-1", "content-2", incomplete)));
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.SELECTED,
+                                List.of("article-1"),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.ANNOTATION_INCONSISTENT);
+    }
+
+    @Test
+    void formalPairingUsesFactsInsteadOfPendingRevisionFlag() throws Exception {
+        LawDocument semanticPending = law("content-2", true, false, "annotation-1");
+        givenCurrentFormalLaw(
+                semanticPending,
+                version("content-2", 2, articles()),
+                annotation("annotation-1", "law-1", "content-1", articleResults()));
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.VERSION_MISMATCH);
+
+        LawDocument annotationOnlyRevision = law(
+                "content-1", true, false, "annotation-1");
+        givenCurrentFormalLaw(
+                annotationOnlyRevision,
+                version("content-1", 1, articles()),
+                annotation("annotation-1", "law-1", "content-1", articleResults()));
+        JsonNode annotationOnlyJson = objectMapper.readTree(service.export(
+                "law-1",
+                formalRequest(
+                        LawExportRequest.Scope.WHOLE,
+                        List.of(),
+                        LawExportRequest.Format.JSON)).content());
+        assertThat(annotationOnlyJson.path("law").path("name").asText())
+                .isEqualTo("当前法律名称");
+        assertThat(annotationOnlyJson.path("structure").get(0).path("title").asText())
+                .isEqualTo("当前第一章");
     }
 
     private static Stream<Arguments> invalidSelections() {
@@ -298,11 +499,27 @@ class ExportServiceTests {
                 .thenReturn(Optional.of(version));
     }
 
+    private void givenCurrentFormalLaw(
+            LawDocument law,
+            ContentVersionDocument version,
+            AnnotationVersionDocument annotation) {
+        givenCurrentLaw(law, version);
+        when(annotationVersionRepository.findById(law.getCurrentAnnotationVersionId()))
+                .thenReturn(Optional.of(annotation));
+    }
+
     private static LawExportRequest request(
             LawExportRequest.Scope scope,
             List<String> articleIds,
             LawExportRequest.Format format) {
         return new LawExportRequest(scope, articleIds, LawExportRequest.Type.PLAIN, format);
+    }
+
+    private static LawExportRequest formalRequest(
+            LawExportRequest.Scope scope,
+            List<String> articleIds,
+            LawExportRequest.Format format) {
+        return new LawExportRequest(scope, articleIds, LawExportRequest.Type.FORMAL, format);
     }
 
     private static List<ArticleSnapshot> articles() {
@@ -324,6 +541,41 @@ class ExportServiceTests {
             int seq,
             List<ArticleSnapshot> articles) {
         return new ContentVersionDocument(id, "law-1", seq, articles, "admin-1", NOW);
+    }
+
+    private static AnnotationVersionDocument annotation(
+            String id,
+            String lawId,
+            String contentVersionId,
+            Map<String, ArticleDraftValues> results) {
+        return new AnnotationVersionDocument(
+                id,
+                lawId,
+                2,
+                contentVersionId,
+                new OverallDraftValues("行政法", "行政,许可", "正式摘要", "正式备注"),
+                results,
+                "task-1",
+                "submission-1",
+                "reviewer-1",
+                NOW.plusSeconds(30));
+    }
+
+    private static Map<String, ArticleDraftValues> articleResults() {
+        Map<String, ArticleDraftValues> results = new LinkedHashMap<>();
+        results.put("article-1", articleResult("一"));
+        results.put("article-2", articleResult("二"));
+        results.put("article-3", articleResult("三"));
+        return Map.copyOf(results);
+    }
+
+    private static ArticleDraftValues articleResult(String suffix) {
+        return new ArticleDraftValues(
+                ItemType.RIGHTS_DUTIES,
+                "关键词" + suffix,
+                "主体" + suffix,
+                "责任" + suffix,
+                "备注" + suffix);
     }
 
     private static LawDocument law(
@@ -377,6 +629,13 @@ class ExportServiceTests {
     }
 
     private static void assertLawError(Runnable action, String code) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(code);
+    }
+
+    private static void assertExportError(Runnable action, String code) {
         assertThatThrownBy(action::run)
                 .isInstanceOf(ApiException.class)
                 .extracting("code")

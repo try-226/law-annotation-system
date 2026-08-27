@@ -6,9 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.law.annotation.annotation.ArticleDraftValues;
+import com.law.annotation.annotation.OverallDraftValues;
+import com.law.annotation.common.enums.ItemType;
 import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.export.dto.LawExportRequest;
+import com.law.annotation.export.formatter.FormalExportCsvFormatter;
+import com.law.annotation.export.formatter.FormalExportJsonFormatter;
 import com.law.annotation.export.formatter.PlainExportCsvFormatter;
 import com.law.annotation.export.formatter.PlainExportJsonFormatter;
 import com.law.annotation.law.ArticleSnapshot;
@@ -19,6 +24,8 @@ import com.law.annotation.law.LawRepository;
 import com.law.annotation.law.LawStructureNode;
 import com.law.annotation.law.LawStructureNodeType;
 import com.law.annotation.law.PendingChangeSet;
+import com.law.annotation.version.AnnotationVersionDocument;
+import com.law.annotation.version.AnnotationVersionRepository;
 import com.law.annotation.version.ContentVersionDocument;
 import com.law.annotation.version.ContentVersionRepository;
 import com.mongodb.client.MongoClient;
@@ -28,6 +35,7 @@ import de.bwaldvogel.mongo.backend.memory.MemoryBackend;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +53,7 @@ class ExportPersistenceIntegrationTests {
     private static MongoTemplate mongoTemplate;
     private static LawRepository lawRepository;
     private static ContentVersionRepository contentVersionRepository;
+    private static AnnotationVersionRepository annotationVersionRepository;
     private static ObjectMapper objectMapper;
     private static ExportService service;
 
@@ -56,12 +65,16 @@ class ExportPersistenceIntegrationTests {
         MongoRepositoryFactory factory = new MongoRepositoryFactory(mongoTemplate);
         lawRepository = factory.getRepository(LawRepository.class);
         contentVersionRepository = factory.getRepository(ContentVersionRepository.class);
+        annotationVersionRepository = factory.getRepository(AnnotationVersionRepository.class);
         objectMapper = JsonMapper.builder().findAndAddModules().build();
         service = new ExportService(
                 lawRepository,
                 contentVersionRepository,
+                annotationVersionRepository,
                 new PlainExportCsvFormatter(),
-                new PlainExportJsonFormatter(objectMapper));
+                new PlainExportJsonFormatter(objectMapper),
+                new FormalExportCsvFormatter(),
+                new FormalExportJsonFormatter(objectMapper));
     }
 
     @AfterAll
@@ -74,6 +87,7 @@ class ExportPersistenceIntegrationTests {
     void clearDocuments() {
         mongoTemplate.remove(new Query(), LawDocument.class);
         mongoTemplate.remove(new Query(), ContentVersionDocument.class);
+        mongoTemplate.remove(new Query(), AnnotationVersionDocument.class);
     }
 
     @Test
@@ -119,6 +133,40 @@ class ExportPersistenceIntegrationTests {
                 .isEqualTo(LawErrorCodes.NOT_FOUND);
     }
 
+    @Test
+    void persistedFormalExportAllowsMatchingPairAndRejectsLatestCWithOldA() throws Exception {
+        contentVersionRepository.insert(version("content-1", 1, "C1正文"));
+        AnnotationVersionDocument a1 = annotation("content-1");
+        annotationVersionRepository.insert(a1);
+        lawRepository.save(law("content-1", false, "annotation-1"));
+
+        JsonNode json = objectMapper.readTree(service.export(
+                        "law-1",
+                        new LawExportRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Type.FORMAL,
+                                LawExportRequest.Format.JSON))
+                .content());
+        assertThat(json.path("annotationVersion").path("annotationVersionId").asText())
+                .isEqualTo("annotation-1");
+        assertThat(json.path("articles").get(0).path("annotationNote").asText())
+                .isEqualTo("正式备注");
+
+        contentVersionRepository.insert(version("content-2", 2, "C2正文"));
+        lawRepository.save(law("content-2", true, "annotation-1"));
+        assertThatThrownBy(() -> service.export(
+                        "law-1",
+                        new LawExportRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Type.FORMAL,
+                                LawExportRequest.Format.JSON)))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ExportErrorCodes.VERSION_MISMATCH);
+    }
+
     private static ContentVersionDocument version(String id, int seq, String body) {
         return new ContentVersionDocument(
                 id,
@@ -130,6 +178,16 @@ class ExportPersistenceIntegrationTests {
     }
 
     private static LawDocument law(String contentVersionId, boolean pendingRevision) {
+        return law(
+                contentVersionId,
+                pendingRevision,
+                pendingRevision ? "annotation-1" : null);
+    }
+
+    private static LawDocument law(
+            String contentVersionId,
+            boolean pendingRevision,
+            String annotationVersionId) {
         return new LawDocument(
                 "law-1",
                 "当前法律名称",
@@ -146,12 +204,31 @@ class ExportPersistenceIntegrationTests {
                         List.of("article-1"))),
                 null,
                 contentVersionId,
-                pendingRevision ? "annotation-1" : null,
+                annotationVersionId,
                 pendingRevision,
                 pendingRevision
                         ? PendingChangeSet.empty().recordModification("article-1")
                         : PendingChangeSet.empty(),
                 NOW,
                 NOW);
+    }
+
+    private static AnnotationVersionDocument annotation(String contentVersionId) {
+        return new AnnotationVersionDocument(
+                "annotation-1",
+                "law-1",
+                1,
+                contentVersionId,
+                new OverallDraftValues("行政法", "关键词", "摘要", "备注"),
+                Map.of("article-1", new ArticleDraftValues(
+                        ItemType.RIGHTS_DUTIES,
+                        "关键词",
+                        "主体",
+                        "责任",
+                        "正式备注")),
+                "task-1",
+                "submission-1",
+                "reviewer-1",
+                NOW.plusSeconds(30));
     }
 }

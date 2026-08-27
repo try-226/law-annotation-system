@@ -109,13 +109,15 @@ class ExportControllerTests {
                 .thenReturn(new ExportedFile(
                         json,
                         MediaType.parseMediaType("application/json;charset=UTF-8"),
-                        "law-law-1-plain.json"));
+                        "law-law-1-formal.json"));
 
         mockMvc.perform(post("/laws/law-1/export")
                         .with(user(admin))
                         .with(csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(wholeRequest("JSON")))
+                        .content("""
+                                {"scope":"WHOLE","articleIds":[],"type":"FORMAL","format":"JSON"}
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("application/json;charset=UTF-8"))
                 .andExpect(content().encoding(StandardCharsets.UTF_8))
