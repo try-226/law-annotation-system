@@ -13,6 +13,15 @@ const loggingOut = ref(false)
 
 const roleLabel = computed(() => (authState.user?.role === 'ADMIN' ? '管理员' : '标注员'))
 const pageTitle = computed(() => route.meta.title ?? '账户中心')
+const activeNavGroup = computed(() => {
+  if (route.meta.navGroup === 'role-tasks') {
+    return authState.user?.role === 'ADMIN' ? 'tasks' : 'my-tasks'
+  }
+  return route.meta.navGroup
+})
+const breadcrumbLabels = computed(() => route.meta.breadcrumbs?.length
+  ? route.meta.breadcrumbs
+  : [pageTitle.value])
 
 async function handleLogout(): Promise<void> {
   if (loggingOut.value) return
@@ -38,16 +47,19 @@ async function handleLogout(): Promise<void> {
         <div><strong>法律条文标注系统</strong><small>LAW ANNOTATION</small></div>
       </div>
       <nav class="nav" aria-label="系统导航">
-        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'users' }" class="nav-item">
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'dashboard' }" class="nav-item" :class="{ 'is-active': activeNavGroup === 'dashboard' }">
+          <span>▤</span>工作台
+        </RouterLink>
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'users' }" class="nav-item" :class="{ 'is-active': activeNavGroup === 'users' }">
           <span>▦</span>用户管理
         </RouterLink>
-        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-list' }" class="nav-item">
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'law-list' }" class="nav-item" :class="{ 'is-active': activeNavGroup === 'laws' }">
           <span>§</span>法律管理
         </RouterLink>
-        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'admin-tasks' }" class="nav-item">
+        <RouterLink v-if="authState.user?.role === 'ADMIN'" :to="{ name: 'admin-tasks' }" class="nav-item" :class="{ 'is-active': activeNavGroup === 'tasks' }">
           <span>☷</span>任务管理
         </RouterLink>
-        <RouterLink v-if="authState.user?.role === 'ANNOTATOR'" :to="{ name: 'my-tasks' }" class="nav-item">
+        <RouterLink v-if="authState.user?.role === 'ANNOTATOR'" :to="{ name: 'my-tasks' }" class="nav-item" :class="{ 'is-active': activeNavGroup === 'my-tasks' }">
           <span>☑</span>我的任务
         </RouterLink>
       </nav>
@@ -55,7 +67,9 @@ async function handleLogout(): Promise<void> {
 
     <div class="shell-main">
       <header class="topbar">
-        <div class="breadcrumb">首页&nbsp; / &nbsp;<strong>{{ pageTitle }}</strong></div>
+        <div class="breadcrumb">
+          <span>首页</span><template v-for="label in breadcrumbLabels" :key="label"><span>&nbsp; / &nbsp;</span><strong>{{ label }}</strong></template>
+        </div>
         <div class="user-menu">
           <button type="button" class="user-trigger" @click="menuOpen = !menuOpen">
             <span class="avatar">{{ authState.user?.name.slice(0, 1) }}</span>
@@ -101,7 +115,7 @@ async function handleLogout(): Promise<void> {
 .brand small { display: block; margin-top: 3px; color: #93a4be; font-size: 9px; letter-spacing: 1px; }
 .nav { display: grid; gap: 5px; padding: 18px 12px; }
 .nav-item { display: flex; height: 44px; align-items: center; gap: 11px; border-radius: 6px; color: #c6d0df; padding: 0 14px; font-size: 14px; }
-.nav-item:hover, .nav-item.router-link-active { background: #2868c7; color: #fff; }
+.nav-item:hover, .nav-item.router-link-active, .nav-item.is-active { background: #2868c7; color: #fff; }
 .nav-item span { width: 18px; text-align: center; }
 .shell-main { min-width: 0; flex: 1; margin-left: 232px; }
 .topbar { position: sticky; z-index: 10; top: 0; display: flex; height: 72px; align-items: center; justify-content: space-between; border-bottom: 1px solid #e1e6ed; background: #fff; padding: 0 28px; }

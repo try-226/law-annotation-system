@@ -293,7 +293,7 @@ watch(lawId, (targetLawId) => {
   <section class="law-page">
     <div class="page-title">
       <div><h1>{{ detail?.name || '法律详情' }}</h1><p class="muted">基础信息与当前内容版本维护</p></div>
-      <div class="actions"><RouterLink class="button secondary" to="/laws">返回列表</RouterLink><button class="danger" :disabled="loading || !detail || maintenanceBusy" :title="maintenanceLocked ? lockReason : saving ? busyReason : loading ? '法律详情正在加载' : !detail ? '法律详情尚未加载' : undefined" @click="removeLaw">删除法律</button></div>
+      <div class="actions"><RouterLink class="button secondary" :to="{ name: 'law-history', params: { lawId } }">查看历史</RouterLink><RouterLink class="button secondary" to="/laws">返回列表</RouterLink><button class="danger" :disabled="loading || !detail || maintenanceBusy" :title="maintenanceLocked ? lockReason : saving ? busyReason : loading ? '法律详情正在加载' : !detail ? '法律详情尚未加载' : undefined" @click="removeLaw">删除法律</button></div>
     </div>
     <p v-if="error" class="error">{{ error }}</p><p v-if="message" class="notice success">{{ message }}</p>
     <div v-if="loading" class="card empty">正在加载…</div>
