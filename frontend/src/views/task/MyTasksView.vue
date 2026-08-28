@@ -111,6 +111,7 @@ onMounted(loadTasks)
               <td class="actions">
                 <button v-if="task.taskState === 'PENDING_ANNOTATION'" class="button button--text" type="button" :disabled="Boolean(startingTaskId)" @click="start(task)"><span v-if="startingTaskId === task.taskId" class="spinner" />{{ startingTaskId === task.taskId ? '开始中…' : annotatorTaskActionLabel(task.taskType, task.taskState) }}</button>
                 <RouterLink v-else class="button button--text" :to="{ name: 'annotation-workbench', params: { taskId: task.taskId } }">{{ annotatorTaskActionLabel(task.taskType, task.taskState) }}</RouterLink>
+                <RouterLink class="button button--text" :to="{ name: 'my-task-detail', params: { taskId: task.taskId } }">任务详情</RouterLink>
               </td>
             </tr>
           </tbody>

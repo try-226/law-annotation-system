@@ -15,6 +15,7 @@ import { notify } from '../../state/notifications'
 import type { TaskArticleSnapshot, TaskDetail } from '../../types/task'
 import type { ReviewDetail, ReviewItem, ReviewTarget } from '../../types/review'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
+import { taskHistoryRoute } from '../history/historyPresentation'
 import TaskStatusBadge from '../task/TaskStatusBadge.vue'
 import ReviewCompleteModal from './ReviewCompleteModal.vue'
 import ReviewContentPanel from './ReviewContentPanel.vue'
@@ -423,7 +424,10 @@ onMounted(() => void loadWorkbench(true))
     <template v-else-if="task">
       <header class="review-page-heading">
         <div><h1>{{ task.taskName }}</h1><p>{{ task.lawBaseInfoSnapshot.name }} · {{ task.contentVersionSnapshot.articles.length }} 条法条</p></div>
-        <TaskStatusBadge :state="task.taskState" />
+        <div class="review-heading-actions">
+          <TaskStatusBadge :state="task.taskState" />
+          <RouterLink class="button" :to="taskHistoryRoute(task.lawId, task.taskId)">查看任务历史</RouterLink>
+        </div>
       </header>
 
       <section v-if="notStarted" class="panel review-pending">

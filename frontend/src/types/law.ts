@@ -1,5 +1,13 @@
 export type ValidityStatus = 'ACTIVE' | 'NOT_EFFECTIVE' | 'INVALID' | 'REPEALED'
 export type StructureNodeType = 'PART' | 'CHAPTER' | 'SECTION'
+
+export const VALIDITY_STATUS_LABELS: Record<ValidityStatus, string> = {
+  ACTIVE: '现行有效',
+  NOT_EFFECTIVE: '尚未生效',
+  INVALID: '失效',
+  REPEALED: '已废止',
+}
+
 export type LawDisplayStatus =
   | 'UNANNOTATED'
   | 'ANNOTATING'

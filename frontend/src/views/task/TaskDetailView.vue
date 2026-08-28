@@ -116,6 +116,7 @@ onMounted(loadTask)
             class="button button--primary"
             :to="{ name: 'review-workbench', params: { taskId: task.taskId } }"
           >进入{{ task.taskState === 'PENDING_REREVIEW' ? '复审' : '初审' }}工作台</RouterLink>
+          <RouterLink class="button" :to="{ name: 'task-history', params: { lawId: task.lawId, taskId: task.taskId } }">查看任务历史</RouterLink>
           <button v-if="isAdmin && isCancelableTaskState(task.taskState)" class="button button--danger" type="button" @click="cancelOpen = true">取消任务</button>
         </div>
       </section>
