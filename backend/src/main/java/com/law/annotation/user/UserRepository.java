@@ -13,4 +13,6 @@ public interface UserRepository extends MongoRepository<UserDocument, String> {
     long countByRole(Role role);
 
     long countByRoleAndEnabledTrue(Role role);
+
+    Optional<UserDocument> findFirstByRoleOrderByCreatedAtAscIdAsc(Role role);
 }

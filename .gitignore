@@ -23,6 +23,10 @@ frontend/dist/
 *.log
 logs/
 uploads/
+backups/
+mongo_data/
+upload_data/
+*.zip
 
 # OS metadata
 .DS_Store

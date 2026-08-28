@@ -3,7 +3,7 @@ services:
     image: mongo:8.0.28
     restart: unless-stopped
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: "${MONGO_INITDB_ROOT_USERNAME}"
       MONGO_INITDB_ROOT_PASSWORD: "${MONGO_INITDB_ROOT_PASSWORD}"
@@ -23,6 +23,73 @@ services:
       start_period: 10s
     volumes:
       - mongo_data:/data/db
+    networks:
+      - law_annotation_network
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: "${SERVER_PORT:-8080}"
+      MONGODB_URI: "${MONGODB_URI}"
+      APP_INIT_ADMIN_ENABLED: "${APP_INIT_ADMIN_ENABLED:-false}"
+      APP_INIT_ADMIN_USERNAME: "${APP_INIT_ADMIN_USERNAME:-}"
+      APP_INIT_ADMIN_PASSWORD: "${APP_INIT_ADMIN_PASSWORD:-}"
+      APP_INIT_ADMIN_NAME: "${APP_INIT_ADMIN_NAME:-}"
+      APP_DEMO_DATA_ENABLED: "${APP_DEMO_DATA_ENABLED:-false}"
+      APP_DEMO_ANNOTATOR_USERNAME: "${APP_DEMO_ANNOTATOR_USERNAME:-}"
+      APP_DEMO_ANNOTATOR_PASSWORD: "${APP_DEMO_ANNOTATOR_PASSWORD:-}"
+      APP_UPLOAD_DIR: "${APP_UPLOAD_DIR:-/app/data/uploads}"
+      APP_AUTH_SESSION_TIMEOUT: "${APP_AUTH_SESSION_TIMEOUT:-30m}"
+      APP_CORS_ALLOWED_ORIGINS: "${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}"
+    expose:
+      - "${SERVER_PORT:-8080}"
+    volumes:
+      - upload_data:/app/data/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --output-document=-
+          "http://127.0.0.1:$${SERVER_PORT}/actuator/health"
+          | grep -q '"status":"UP"'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - law_annotation_network
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_PORT: "${SERVER_PORT:-8080}"
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --spider http://127.0.0.1/health
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - law_annotation_network
 
 volumes:
   mongo_data:
+  upload_data:
+
+networks:
+  law_annotation_network:
+    driver: bridge

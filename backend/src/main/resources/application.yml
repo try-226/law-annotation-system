@@ -23,3 +23,18 @@ app:
     username: ${APP_INIT_ADMIN_USERNAME:}
     password: ${APP_INIT_ADMIN_PASSWORD:}
     name: ${APP_INIT_ADMIN_NAME:}
+  demo-data:
+    enabled: ${APP_DEMO_DATA_ENABLED:false}
+    annotator-username: ${APP_DEMO_ANNOTATOR_USERNAME:}
+    annotator-password: ${APP_DEMO_ANNOTATOR_PASSWORD:}
+  upload:
+    dir: ${APP_UPLOAD_DIR:/app/data/uploads}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
