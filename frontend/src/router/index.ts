@@ -2,7 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import type { Role } from '../api/types'
 import BasicLayout from '../layouts/BasicLayout.vue'
-import { landingRouteName } from './routePolicy'
+import { landingRouteName, roleCanAccess } from './routePolicy'
 
 export { landingRouteName } from './routePolicy'
 import { authState, restoreSession } from '../state/auth'
@@ -72,6 +72,12 @@ const routes: RouteRecordRaw[] = [
         name: 'law-list',
         component: LawListView,
         meta: { roles: ['ADMIN'], title: '法律管理', navGroup: 'laws', breadcrumbs: ['法律管理'] },
+      },
+      {
+        path: 'search',
+        name: 'admin-search',
+        component: () => import('../views/search/SearchResultsView.vue'),
+        meta: { roles: ['ADMIN'], title: '全库搜索', navGroup: 'laws', breadcrumbs: ['法律管理', '全库搜索'] },
       },
       {
         path: 'laws/import',
@@ -210,7 +216,7 @@ router.beforeEach(async (to) => {
     return { name: landingRouteName(authState.user.role) }
   }
 
-  if (to.meta.roles?.length && authState.user && !to.meta.roles.includes(authState.user.role)) {
+  if (authState.user && !roleCanAccess(authState.user.role, to.meta.roles)) {
     return { name: landingRouteName(authState.user.role) }
   }
 

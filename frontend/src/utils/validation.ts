@@ -10,6 +10,10 @@ function characterLength(value: string): number {
   return [...value].length
 }
 
+export function normalizeSearchQuery(value: string): string {
+  return trimText(value).replace(/[\r\n\t ]+/g, ' ')
+}
+
 export function validateName(value: string): string | null {
   const name = trimText(value)
   const length = characterLength(name)
@@ -40,4 +44,10 @@ export function validatePasswordConfirmation(password: string, confirmation: str
 
 export function validateSearch(value: string): string | null {
   return characterLength(trimText(value)) > 100 ? '搜索关键词不能超过100个字符' : null
+}
+
+export function validateRequiredSearch(value: string): string | null {
+  const query = normalizeSearchQuery(value)
+  if (!query) return '请输入搜索关键词'
+  return characterLength(query) > 100 ? '搜索关键词不能超过100个字符' : null
 }
