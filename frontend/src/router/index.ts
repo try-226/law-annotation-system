@@ -125,7 +125,7 @@ const routes: RouteRecordRaw[] = [
         path: 'laws/:lawId/history/tasks/:taskId',
         name: 'task-history',
         component: () => import('../views/history/HistoryDetailView.vue'),
-        meta: { roles: ['ADMIN', 'ANNOTATOR'], title: '任务历史', navGroup: 'role-tasks', breadcrumbs: ['任务详情', '任务历史'] },
+        meta: { roles: ['ADMIN', 'ANNOTATOR'], title: '任务历史', navGroup: 'role-tasks', breadcrumbs: ['任务历史'] },
       },
       {
         path: 'tasks',

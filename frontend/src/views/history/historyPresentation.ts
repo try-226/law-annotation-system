@@ -1,5 +1,8 @@
 import type { RouteLocationRaw } from 'vue-router'
 
+import type { Role } from '../../api/types'
+import { ARTICLE_FIELD_LABELS, OVERALL_FIELD_LABELS } from '../../types/annotation'
+import { VALIDITY_STATUS_LABELS } from '../../types/law'
 import type { TaskArticleSnapshot } from '../../types/task'
 import type {
   AnnotationVersionArticleResult,
@@ -32,6 +35,7 @@ export function historyDetailRoute(lawId: string, detailRef: HistoryDetailRef): 
       return {
         name: 'task-history',
         params: { lawId, taskId: detailRef.resourceId },
+        query: { from: 'law-history' },
       }
     default:
       return null
@@ -43,6 +47,45 @@ export function historyTimelineRows(lawId: string, timeline: HistoryTimelineItem
     ...item,
     route: historyDetailRoute(lawId, item.detailRef),
   }))
+}
+
+export interface TimelinePage<T> {
+  items: T[]
+  page: number
+  totalPages: number
+  totalItems: number
+}
+
+export function paginateTimeline<T>(items: T[], requestedPage: number, pageSize: number): TimelinePage<T> {
+  const safePageSize = Math.max(1, Math.floor(pageSize))
+  const totalPages = Math.ceil(items.length / safePageSize)
+  const page = Math.min(Math.max(1, Math.floor(requestedPage)), Math.max(1, totalPages))
+  const start = (page - 1) * safePageSize
+  return {
+    items: items.slice(start, start + safePageSize),
+    page,
+    totalPages,
+    totalItems: items.length,
+  }
+}
+
+export function taskHistoryBackRoute(
+  role: Role | undefined,
+  lawId: string,
+  taskId: string,
+  from: unknown,
+): RouteLocationRaw {
+  if (isLawHistoryReturnContext(role, from)) {
+    return { name: 'law-history', params: { lawId } }
+  }
+  return {
+    name: role === 'ADMIN' ? 'admin-task-detail' : 'my-task-detail',
+    params: { taskId },
+  }
+}
+
+export function isLawHistoryReturnContext(role: Role | undefined, from: unknown): boolean {
+  return role === 'ADMIN' && from === 'law-history'
 }
 
 export function annotationArticleRows(
@@ -63,4 +106,24 @@ export function formatAuditValue(value: unknown): string {
   } catch {
     return '[无法格式化的历史值]'
   }
+}
+
+function labelFromEntries(entries: ReadonlyArray<readonly [string, string]>, value: string): string {
+  return entries.find(([key]) => key === value)?.[1] ?? value
+}
+
+export function validityStatusLabel(status: string): string {
+  return labelFromEntries(Object.entries(VALIDITY_STATUS_LABELS), status)
+}
+
+export function historyFieldLabel(scope: 'overall' | 'article', fieldKey: string): string {
+  const labels = scope === 'overall' ? OVERALL_FIELD_LABELS : ARTICLE_FIELD_LABELS
+  return labelFromEntries(Object.entries(labels), fieldKey)
+}
+
+export function lawAuditTypeLabel(auditType: string): string {
+  return labelFromEntries([
+    ['BASE_INFO', '基础信息变更'],
+    ['STRUCTURE', '结构变更'],
+  ], auditType)
 }

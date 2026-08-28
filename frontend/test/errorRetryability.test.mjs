@@ -13,6 +13,10 @@ test('无响应网络错误和服务端错误允许重新加载', () => {
   assert.equal(isRetryableFailure(failure(503)), true)
 })
 
+test('没有 HTTP 状态的本地错误不能仅因 status undefined 显示重试', () => {
+  assert.equal(isRetryableFailure({ locators: [], network: false }), false)
+})
+
 test('权限、隐藏资源和历史快照冲突不显示无意义重试', () => {
   assert.equal(isRetryableFailure(failure(403, 'AUTH.FORBIDDEN')), false)
   assert.equal(isRetryableFailure(failure(404, 'TASK.NOT_FOUND')), false)
