@@ -6,7 +6,6 @@ import {
   ExportSelectionError,
   filenameFromContentDisposition,
   formalAvailability,
-  latestApprovedAnnotationVersionId,
 } from '../src/views/export/exportDownload.ts'
 
 test('WHOLE 请求不携带 articleIds', () => {
@@ -42,35 +41,37 @@ test('Content-Disposition 优先解析 UTF-8 文件名并清理非法路径字�
   assert.equal(filenameFromContentDisposition(undefined, 'fallback.csv'), 'fallback.csv')
 })
 
-test('当前正式 A 从服务端倒序 history timeline 的最新批准事件取得', () => {
-  assert.equal(latestApprovedAnnotationVersionId({
-    timeline: [
-      { type: 'TASK_CREATED', detailRef: { type: 'TASK', resourceId: 'task-2' } },
-      { type: 'ANNOTATION_VERSION_APPROVED', detailRef: { type: 'ANNOTATION_VERSION', resourceId: 'annotation-2' } },
-      { type: 'ANNOTATION_VERSION_APPROVED', detailRef: { type: 'ANNOTATION_VERSION', resourceId: 'annotation-1' } },
-    ],
-  }), 'annotation-2')
-  assert.equal(latestApprovedAnnotationVersionId({ timeline: [] }), null)
-})
-
 test('FORMAL 可用性同时要求无 pendingRevision 且 current A-C 匹配', () => {
   const baseLaw = {
     id: 'law-1',
+    currentAnnotationVersionId: 'annotation-1',
     currentContentVersionId: 'content-1',
     pendingRevision: false,
   }
   const annotation = { lawId: 'law-1', annotationVersionId: 'annotation-1', contentVersionId: 'content-1' }
-  assert.equal(formalAvailability(baseLaw, 'annotation-1', annotation).available, true)
-  const pending = formalAvailability({ ...baseLaw, pendingRevision: true }, 'annotation-1', annotation)
+  assert.equal(formalAvailability(baseLaw, annotation).available, true)
+  const pending = formalAvailability({ ...baseLaw, pendingRevision: true }, annotation)
   assert.equal(pending.available, false)
   assert.match(pending.message, /待修订/)
   assert.equal(formalAvailability(
     { ...baseLaw, currentContentVersionId: 'content-2' },
-    'annotation-1',
     annotation,
   ).available, false)
-  assert.equal(formalAvailability(baseLaw, null, null).available, false)
-  assert.equal(formalAvailability(baseLaw, 'annotation-1', null, true).available, false)
+  assert.equal(formalAvailability({ ...baseLaw, currentAnnotationVersionId: null }, null).available, false)
+  assert.equal(formalAvailability(baseLaw, null, true).available, false)
+})
+
+test('当前正式结果严格使用 Law pointer，不把同一 C 上更新生成的 A 当成 current A', () => {
+  const law = {
+    id: 'law-1',
+    currentAnnotationVersionId: 'annotation-1',
+    currentContentVersionId: 'content-1',
+    pendingRevision: false,
+  }
+  const currentA = { lawId: 'law-1', annotationVersionId: 'annotation-1', contentVersionId: 'content-1' }
+  const newerButNotCurrentA = { lawId: 'law-1', annotationVersionId: 'annotation-2', contentVersionId: 'content-1' }
+  assert.equal(formalAvailability(law, currentA).available, true)
+  assert.equal(formalAvailability(law, newerButNotCurrentA).available, false)
 })
 
 test('pendingRevision 不影响 PLAIN 的 WHOLE/SELECTED 请求构造', () => {

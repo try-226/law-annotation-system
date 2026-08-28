@@ -1,4 +1,4 @@
-import type { AnnotationVersionHistory, LawHistory } from '../../types/history'
+import type { AnnotationVersionHistory } from '../../types/history'
 import type { LawDetail } from '../../types/law'
 import type { ExportFormat, ExportScope, ExportType, LawExportRequest } from '../../types/export'
 
@@ -7,15 +7,6 @@ export class ExportSelectionError extends Error {}
 export interface FormalAvailability {
   available: boolean
   message: string
-}
-
-export function latestApprovedAnnotationVersionId(history: Pick<LawHistory, 'timeline'>): string | null {
-  const current = history.timeline.find((item) => (
-    item.type === 'ANNOTATION_VERSION_APPROVED'
-    && item.detailRef.type === 'ANNOTATION_VERSION'
-    && item.detailRef.resourceId.trim().length > 0
-  ))
-  return current?.detailRef.resourceId ?? null
 }
 
 export function buildLawExportRequest(
@@ -36,8 +27,7 @@ export function buildLawExportRequest(
 }
 
 export function formalAvailability(
-  law: Pick<LawDetail, 'id' | 'currentContentVersionId' | 'pendingRevision'>,
-  currentAnnotationVersionId: string | null,
+  law: Pick<LawDetail, 'id' | 'currentAnnotationVersionId' | 'currentContentVersionId' | 'pendingRevision'>,
   annotation: AnnotationVersionHistory | null,
   loadFailed = false,
 ): FormalAvailability {
@@ -50,13 +40,13 @@ export function formalAvailability(
   if (loadFailed) {
     return { available: false, message: '当前正式标注结果尚未成功加载，请稍后重试。' }
   }
-  if (!currentAnnotationVersionId) {
+  if (!law.currentAnnotationVersionId) {
     return { available: false, message: '该法律尚无正式标注结果，可先导出纯法律正文。' }
   }
   if (
     !annotation
     || annotation.lawId !== law.id
-    || annotation.annotationVersionId !== currentAnnotationVersionId
+    || annotation.annotationVersionId !== law.currentAnnotationVersionId
   ) {
     return { available: false, message: '当前正式标注结果尚未成功加载，请稍后重试。' }
   }

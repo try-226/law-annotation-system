@@ -6,12 +6,11 @@ import {
   addLawArticle, apiErrorMessage, deleteLaw, deleteLawArticle, getLaw,
   updateLawArticle, updateLawBase, updateLawStructure,
 } from '../../api/laws'
-import { getAnnotationVersionHistory, getLawHistory } from '../../api/history'
+import { getAnnotationVersionHistory } from '../../api/history'
 import type { AnnotationVersionHistory } from '../../types/history'
 import type { LawArticle, LawBaseInfo, LawDetail, LawDisplayStatus, LawStructureInput, StructureNodeType, ValidityStatus } from '../../types/law'
 import CurrentFormalResult from '../export/CurrentFormalResult.vue'
 import LawExportModal from '../export/LawExportModal.vue'
-import { latestApprovedAnnotationVersionId } from '../export/exportDownload'
 import {
   createLawDetailDraftState,
   mergeLawDetailDraftState,
@@ -36,7 +35,6 @@ const saving = ref('')
 const error = ref('')
 const message = ref('')
 const formalResult = ref<AnnotationVersionHistory | null>(null)
-const currentAnnotationVersionId = ref<string | null>(null)
 const formalLoading = ref(false)
 const formalError = ref('')
 const selectedArticleIds = ref<string[]>([])
@@ -98,7 +96,6 @@ function resetPageState() {
   error.value = ''
   message.value = ''
   formalResult.value = null
-  currentAnnotationVersionId.value = null
   formalLoading.value = false
   formalError.value = ''
   selectedArticleIds.value = []
@@ -142,19 +139,20 @@ function syncMutation(value: LawDetail, saved: SavedLawRegion) {
   selectedArticleIds.value = selectedArticleIds.value.filter((articleId) => currentIds.has(articleId))
 }
 
-async function loadFormalResult(targetLawId: string, generation: number): Promise<void> {
+async function loadFormalResult(value: LawDetail, targetLawId: string, generation: number): Promise<void> {
   const currentRequest = ++formalSequence
   formalResult.value = null
-  currentAnnotationVersionId.value = null
   formalError.value = ''
+  if (!value.currentAnnotationVersionId) {
+    formalLoading.value = false
+    return
+  }
   formalLoading.value = true
   try {
-    const history = await getLawHistory(targetLawId)
-    if (!isCurrentView(targetLawId, generation) || currentRequest !== formalSequence) return
-    const annotationVersionId = latestApprovedAnnotationVersionId(history)
-    currentAnnotationVersionId.value = annotationVersionId
-    if (!annotationVersionId) return
-    const annotation = await getAnnotationVersionHistory(targetLawId, annotationVersionId)
+    const annotation = await getAnnotationVersionHistory(
+      targetLawId,
+      value.currentAnnotationVersionId,
+    )
     if (isCurrentView(targetLawId, generation) && currentRequest === formalSequence) {
       formalResult.value = annotation
     }
@@ -195,7 +193,7 @@ async function load(targetLawId: string, generation: number) {
       return
     }
     syncInitial(value)
-    await loadFormalResult(targetLawId, generation)
+    await loadFormalResult(value, targetLawId, generation)
   } catch (caught) {
     if (isCurrentView(targetLawId, generation) && currentRequest === loadSequence) {
       error.value = apiErrorMessage(caught)
@@ -227,6 +225,9 @@ async function run(
       return false
     }
     syncMutation(value, saved)
+    if ((formalResult.value?.annotationVersionId ?? null) !== value.currentAnnotationVersionId) {
+      await loadFormalResult(value, targetLawId, generation)
+    }
     message.value = '保存成功'
     return true
   } catch (caught) {
@@ -402,7 +403,6 @@ watch(
 
       <CurrentFormalResult
         :law="detail"
-        :current-annotation-version-id="currentAnnotationVersionId"
         :annotation="formalResult"
         :articles="articles"
         :loading="formalLoading"
@@ -450,7 +450,7 @@ watch(
         </div>
       </div>
     </template>
-    <LawExportModal v-if="detail" :open="exportOpen" :law="detail" :selected-article-ids="selectedArticleIds" :current-annotation-version-id="currentAnnotationVersionId" :annotation="formalResult" :formal-load-error="formalError" @close="exportOpen = false" />
+    <LawExportModal v-if="detail" :open="exportOpen" :law="detail" :selected-article-ids="selectedArticleIds" :annotation="formalResult" :formal-load-error="formalError" @close="exportOpen = false" />
   </section>
 </template>
 

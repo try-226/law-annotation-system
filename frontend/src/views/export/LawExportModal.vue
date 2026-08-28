@@ -19,7 +19,6 @@ const props = defineProps<{
   open: boolean
   law: LawDetail
   selectedArticleIds: string[]
-  currentAnnotationVersionId: string | null
   annotation: AnnotationVersionHistory | null
   formalLoadError: string
 }>()
@@ -32,7 +31,6 @@ const busy = ref(false)
 const error = ref('')
 const availability = computed(() => formalAvailability(
   props.law,
-  props.currentAnnotationVersionId,
   props.annotation,
   Boolean(props.formalLoadError),
 ))

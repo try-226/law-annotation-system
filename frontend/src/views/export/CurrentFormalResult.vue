@@ -8,7 +8,6 @@ import { formalAvailability } from './exportDownload'
 
 const props = defineProps<{
   law: LawDetail
-  currentAnnotationVersionId: string | null
   annotation: AnnotationVersionHistory | null
   articles: LawArticle[]
   loading: boolean
@@ -18,7 +17,6 @@ const props = defineProps<{
 
 const availability = computed(() => formalAvailability(
   props.law,
-  props.currentAnnotationVersionId,
   props.annotation,
   Boolean(props.error),
 ))
