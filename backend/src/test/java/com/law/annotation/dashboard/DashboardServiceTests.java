@@ -10,31 +10,23 @@ import static org.mockito.Mockito.when;
 
 import com.law.annotation.common.enums.TaskState;
 import com.law.annotation.common.enums.TaskType;
-import com.law.annotation.common.enums.ValidityStatus;
 import com.law.annotation.common.exception.ApiException;
 import com.law.annotation.dashboard.dto.DashboardSummaryResponse;
 import com.law.annotation.dashboard.dto.DashboardTodoResponse;
-import com.law.annotation.field.FieldConfigSnapshot;
-import com.law.annotation.law.ArticleSnapshot;
 import com.law.annotation.law.LawDisplayStatusResolver;
-import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.LawDashboardProjection;
 import com.law.annotation.law.LawRepository;
-import com.law.annotation.law.PendingChangeSet;
-import com.law.annotation.task.TaskContentVersionSnapshot;
-import com.law.annotation.task.TaskDocument;
-import com.law.annotation.task.TaskLawBaseInfoSnapshot;
+import com.law.annotation.task.DashboardTodoTaskProjection;
 import com.law.annotation.task.TaskRepository;
 import com.law.annotation.task.TaskStateRules;
 import com.law.annotation.task.TaskStatusProjection;
-import com.law.annotation.version.ContentVersionDocument;
+import com.law.annotation.version.ContentVersionArticleCountProjection;
 import com.law.annotation.version.ContentVersionRepository;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
 
 class DashboardServiceTests {
 
@@ -59,26 +51,27 @@ class DashboardServiceTests {
 
     @Test
     void summaryUsesOnlyCurrentContentAndUnifiedLawDisplayStatusPriority() {
-        LawDocument unannotated = law("law-unannotated", "c-unannotated", null, false);
-        LawDocument annotating = law("law-annotating", "c-annotating", null, false);
-        LawDocument completed = law("law-completed", "c-completed", "a-completed", false);
-        LawDocument pending = law("law-pending", "c-pending", "a-pending", true);
-        LawDocument revising = law("law-revising", "c-revising", "a-revising", true);
-        List<LawDocument> laws = List.of(
+        LawDashboardProjection unannotated = law("law-unannotated", "c-unannotated", null, false);
+        LawDashboardProjection annotating = law("law-annotating", "c-annotating", null, false);
+        LawDashboardProjection completed = law("law-completed", "c-completed", "a-completed", false);
+        LawDashboardProjection pending = law("law-pending", "c-pending", "a-pending", true);
+        LawDashboardProjection revising = law("law-revising", "c-revising", "a-revising", true);
+        List<LawDashboardProjection> laws = List.of(
                 unannotated, annotating, completed, pending, revising);
-        when(lawRepository.findAllByDeletedAtIsNull()).thenReturn(laws);
-        when(contentVersionRepository.findByIdIn(List.of(
+        List<ContentVersionArticleCountProjection> articleCounts = List.of(
+                articleCount("c-unannotated", "law-unannotated", 2),
+                articleCount("c-annotating", "law-annotating", 1),
+                articleCount("c-completed", "law-completed", 3),
+                articleCount("c-pending", "law-pending", 4),
+                articleCount("c-revising", "law-revising", 5));
+        when(lawRepository.findDashboardLaws()).thenReturn(laws);
+        when(contentVersionRepository.findArticleCountsByIdIn(List.of(
                         "c-unannotated",
                         "c-annotating",
                         "c-completed",
                         "c-pending",
                         "c-revising")))
-                .thenReturn(List.of(
-                        version("c-unannotated", "law-unannotated", 2),
-                        version("c-annotating", "law-annotating", 1),
-                        version("c-completed", "law-completed", 3),
-                        version("c-pending", "law-pending", 4),
-                        version("c-revising", "law-revising", 5)));
+                .thenReturn(articleCounts);
         TaskStatusProjection ordinaryTask = taskStatus(
                 "law-annotating",
                 TaskType.ORDINARY,
@@ -98,15 +91,15 @@ class DashboardServiceTests {
                 .thenReturn(List.of(ordinaryTask, revisionTask));
         when(taskRepository.countByTaskStateInAndLawIdIn(
                         TaskStateRules.unfinishedStates(),
-                        laws.stream().map(LawDocument::getId).toList()))
+                        laws.stream().map(LawDashboardProjection::getId).toList()))
                 .thenReturn(2L);
         when(taskRepository.countByTaskStateAndLawIdIn(
                         TaskState.PENDING_REVIEW,
-                        laws.stream().map(LawDocument::getId).toList()))
+                        laws.stream().map(LawDashboardProjection::getId).toList()))
                 .thenReturn(1L);
         when(taskRepository.countByTaskStateAndLawIdIn(
                         TaskState.PENDING_REREVIEW,
-                        laws.stream().map(LawDocument::getId).toList()))
+                        laws.stream().map(LawDashboardProjection::getId).toList()))
                 .thenReturn(0L);
 
         DashboardSummaryResponse result = service.getSummary();
@@ -119,14 +112,17 @@ class DashboardServiceTests {
         assertThat(result.pendingRereviewTasks()).isZero();
         assertThat(result.pendingRevisionLaws()).isEqualTo(1);
         assertThat(result.completedLaws()).isEqualTo(1);
+        verify(lawRepository, never()).findAllByDeletedAtIsNull();
+        verify(contentVersionRepository, never()).findByIdIn(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void summaryDelegatesActiveAndReviewCountsToPreciseDatabaseQueries() {
-        LawDocument law = law("law-1", "c-1", null, false);
-        when(lawRepository.findAllByDeletedAtIsNull()).thenReturn(List.of(law));
-        when(contentVersionRepository.findByIdIn(List.of("c-1")))
-                .thenReturn(List.of(version("c-1", "law-1", 1)));
+        LawDashboardProjection law = law("law-1", "c-1", null, false);
+        ContentVersionArticleCountProjection count = articleCount("c-1", "law-1", 1);
+        when(lawRepository.findDashboardLaws()).thenReturn(List.of(law));
+        when(contentVersionRepository.findArticleCountsByIdIn(List.of("c-1")))
+                .thenReturn(List.of(count));
         when(taskRepository.findStatusesByLawIdInAndTaskStateIn(
                         List.of("law-1"), TaskStateRules.unfinishedStates()))
                 .thenReturn(List.of());
@@ -161,29 +157,33 @@ class DashboardServiceTests {
 
     @Test
     void todosAreSeparatedByExactStateAndDefensivelyExcludeDeletedLawTasks() {
-        LawDocument firstLaw = law("law-1", "c-1", null, false);
-        LawDocument secondLaw = law("law-2", "c-2", null, false);
-        when(lawRepository.findAllByDeletedAtIsNull())
+        LawDashboardProjection firstLaw = law("law-1", "c-1", null, false);
+        LawDashboardProjection secondLaw = law("law-2", "c-2", null, false);
+        when(lawRepository.findDashboardLaws())
                 .thenReturn(List.of(firstLaw, secondLaw));
-        TaskDocument review = task(
-                "task-review", firstLaw, TaskType.ORDINARY, TaskState.PENDING_REVIEW, T0);
-        TaskDocument rereview = task(
+        DashboardTodoTaskProjection review = task(
+                "task-review", "law-1", TaskType.ORDINARY, TaskState.PENDING_REVIEW, T0);
+        DashboardTodoTaskProjection rereview = task(
                 "task-rereview",
-                secondLaw,
+                "law-2",
                 TaskType.REVISION,
                 TaskState.PENDING_REREVIEW,
                 T0.plusSeconds(1));
-        TaskDocument deletedLawTask = task(
+        DashboardTodoTaskProjection deletedLawTask = task(
                 "task-deleted",
-                law("deleted-law", "c-deleted", null, false),
+                "deleted-law",
                 TaskType.ORDINARY,
                 TaskState.PENDING_REVIEW,
                 T0.plusSeconds(2));
-        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
-                        TaskState.PENDING_REVIEW, List.of("law-1", "law-2")))
+        when(taskRepository.findDashboardTodos(
+                        TaskState.PENDING_REVIEW,
+                        List.of("law-1", "law-2"),
+                        PageRequest.of(0, 10)))
                 .thenReturn(List.of(deletedLawTask, review));
-        when(taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
-                        TaskState.PENDING_REREVIEW, List.of("law-1", "law-2")))
+        when(taskRepository.findDashboardTodos(
+                        TaskState.PENDING_REREVIEW,
+                        List.of("law-1", "law-2"),
+                        PageRequest.of(0, 10)))
                 .thenReturn(List.of(rereview));
 
         DashboardTodoResponse result = service.getTodos();
@@ -193,6 +193,7 @@ class DashboardServiceTests {
             assertThat(item.lawId()).isEqualTo("law-1");
             assertThat(item.lawName()).isEqualTo("law-1名称");
             assertThat(item.taskState()).isEqualTo(TaskState.PENDING_REVIEW);
+            assertThat(item.updatedAt()).isEqualTo(T0);
         });
         assertThat(result.pendingRereview()).singleElement().satisfies(item -> {
             assertThat(item.taskId()).isEqualTo("task-rereview");
@@ -203,7 +204,7 @@ class DashboardServiceTests {
 
     @Test
     void emptyVisibleLawSetReturnsZerosWithoutTaskOrVersionQueries() {
-        when(lawRepository.findAllByDeletedAtIsNull()).thenReturn(List.of());
+        when(lawRepository.findDashboardLaws()).thenReturn(List.of());
 
         DashboardSummaryResponse summary = service.getSummary();
         DashboardTodoResponse todos = service.getTodos();
@@ -217,10 +218,12 @@ class DashboardServiceTests {
 
     @Test
     void inconsistentCurrentContentVersionUsesExistingLawErrorContract() {
-        LawDocument law = law("law-1", "c-current", null, false);
-        when(lawRepository.findAllByDeletedAtIsNull()).thenReturn(List.of(law));
-        when(contentVersionRepository.findByIdIn(List.of("c-current")))
-                .thenReturn(List.of(version("c-current", "other-law", 1)));
+        LawDashboardProjection law = law("law-1", "c-current", null, false);
+        ContentVersionArticleCountProjection count =
+                articleCount("c-current", "other-law", 1);
+        when(lawRepository.findDashboardLaws()).thenReturn(List.of(law));
+        when(contentVersionRepository.findArticleCountsByIdIn(List.of("c-current")))
+                .thenReturn(List.of(count));
         when(taskRepository.findStatusesByLawIdInAndTaskStateIn(
                         List.of("law-1"), TaskStateRules.unfinishedStates()))
                 .thenReturn(List.of());
@@ -235,43 +238,41 @@ class DashboardServiceTests {
                 TaskStateRules.unfinishedStates(), List.of("law-1"));
     }
 
-    private static LawDocument law(
+    @Test
+    void missingCurrentContentVersionUsesExistingLawErrorContract() {
+        LawDashboardProjection law = law("law-1", "c-missing", null, false);
+        when(lawRepository.findDashboardLaws()).thenReturn(List.of(law));
+        when(contentVersionRepository.findArticleCountsByIdIn(List.of("c-missing")))
+                .thenReturn(List.of());
+        when(taskRepository.findStatusesByLawIdInAndTaskStateIn(
+                        List.of("law-1"), TaskStateRules.unfinishedStates()))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(service::getSummary)
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.getStatus().value()).isEqualTo(409);
+                    assertThat(error.getCode()).isEqualTo("LAW.VERSION_INCONSISTENT");
+                });
+    }
+
+    private static LawDashboardProjection law(
             String id,
             String contentVersionId,
             String annotationVersionId,
             boolean pendingRevision) {
-        return new LawDocument(
+        return new LawDashboardProjection(
                 id,
                 id + "名称",
-                id + "名称",
-                "制定机关",
-                LocalDate.of(2026, 8, 27),
-                ValidityStatus.ACTIVE,
-                List.of(),
-                null,
                 contentVersionId,
                 annotationVersionId,
-                pendingRevision,
-                pendingRevision
-                        ? new PendingChangeSet(Set.of(), Set.of("article-1"), Set.of())
-                        : PendingChangeSet.empty(),
-                T0,
-                T0);
+                pendingRevision);
     }
 
-    private static ContentVersionDocument version(
+    private static ContentVersionArticleCountProjection articleCount(
             String id,
             String lawId,
             int articleCount) {
-        List<ArticleSnapshot> articles = new ArrayList<>();
-        for (int index = 0; index < articleCount; index++) {
-            articles.add(new ArticleSnapshot(
-                    "article-" + index,
-                    "第" + (index + 1) + "条",
-                    "正文" + index,
-                    index));
-        }
-        return new ContentVersionDocument(id, lawId, 1, articles, "admin", T0);
+        return new ContentVersionArticleCountProjection(id, lawId, articleCount);
     }
 
     private static TaskStatusProjection taskStatus(
@@ -285,33 +286,18 @@ class DashboardServiceTests {
         return projection;
     }
 
-    private static TaskDocument task(
+    private static DashboardTodoTaskProjection task(
             String taskId,
-            LawDocument law,
+            String lawId,
             TaskType type,
             TaskState state,
-            Instant createdAt) {
-        return new TaskDocument(
+            Instant updatedAt) {
+        return new DashboardTodoTaskProjection(
                 taskId,
+                taskId + "名称",
                 type,
                 state,
-                law.getId(),
-                "annotator",
-                "标注员",
-                taskId + "名称",
-                null,
-                law.getCurrentContentVersionId(),
-                new TaskContentVersionSnapshot(
-                        law.getCurrentContentVersionId(), 1, List.of()),
-                TaskLawBaseInfoSnapshot.from(law),
-                List.of(),
-                new FieldConfigSnapshot(List.of(), List.of()),
-                "admin",
-                null,
-                null,
-                null,
-                null,
-                createdAt,
-                createdAt);
+                lawId,
+                updatedAt);
     }
 }

@@ -82,6 +82,9 @@ class DashboardControllerTests {
                         .value("task-review"))
                 .andExpect(jsonPath("$.data.pendingReview[0].taskState")
                         .value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.pendingReview[0].updatedAt")
+                        .value("2026-08-27T00:00:00Z"))
+                .andExpect(jsonPath("$.data.pendingReview[0].createdAt").doesNotExist())
                 .andExpect(jsonPath("$.data.pendingRereview").isArray());
     }
 

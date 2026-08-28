@@ -12,13 +12,25 @@ public class LawDisplayStatusResolver {
 
     public LawDisplayStatus resolve(LawDocument law, TaskStatusProjection activeTask) {
         Objects.requireNonNull(law, "law must not be null");
+        return resolve(law.isPendingRevision(), law.getCurrentAnnotationVersionId(), activeTask);
+    }
+
+    public LawDisplayStatus resolve(LawDashboardProjection law, TaskStatusProjection activeTask) {
+        Objects.requireNonNull(law, "law must not be null");
+        return resolve(law.isPendingRevision(), law.getCurrentAnnotationVersionId(), activeTask);
+    }
+
+    private LawDisplayStatus resolve(
+            boolean pendingRevision,
+            String currentAnnotationVersionId,
+            TaskStatusProjection activeTask) {
         if (activeTask != null) {
             return resolveActiveTask(activeTask);
         }
-        if (law.isPendingRevision()) {
+        if (pendingRevision) {
             return LawDisplayStatus.PENDING_REVISION;
         }
-        if (law.getCurrentAnnotationVersionId() != null) {
+        if (currentAnnotationVersionId != null) {
             return LawDisplayStatus.COMPLETED;
         }
         return LawDisplayStatus.UNANNOTATED;

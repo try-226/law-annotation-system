@@ -26,10 +26,12 @@ import de.bwaldvogel.mongo.backend.memory.MemoryBackend;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -135,7 +137,97 @@ class DashboardPersistenceIntegrationTests {
     }
 
     @Test
-    void todosAreLimitedToTenNewestTasksPerCategory() {
+    void dashboardQueriesMaterializeOnlyRequiredProjectedFields() {
+        mongoTemplate.getCollection("content_versions").insertOne(new Document()
+                .append("_id", "c-light")
+                .append("lawId", "law-light")
+                .append("semanticArticlesSnapshot", List.of(
+                        new Document("body", "不应返回到JVM的正文一"),
+                        new Document("body", "不应返回到JVM的正文二"))));
+        mongoTemplate.getCollection("laws").insertOne(new Document()
+                .append("_id", "law-light")
+                .append("name", "轻量法律")
+                .append("deletedAt", null)
+                .append("currentContentVersionId", "c-light")
+                .append("currentAnnotationVersionId", null)
+                .append("pendingRevision", false)
+                .append("structure", "若加载LawDocument会类型不匹配")
+                .append("pendingChangeSet", "若加载LawDocument会类型不匹配"));
+        mongoTemplate.getCollection("tasks").insertOne(new Document()
+                .append("_id", "task-light")
+                .append("taskName", "轻量待办")
+                .append("taskType", "ORDINARY")
+                .append("taskState", "PENDING_REVIEW")
+                .append("lawId", "law-light")
+                .append("updatedAt", Date.from(T0.plusSeconds(30)))
+                .append("contentVersionSnapshot", "若加载TaskDocument会类型不匹配")
+                .append("structureSnapshot", "若加载TaskDocument会类型不匹配"));
+
+        DashboardSummaryResponse summary = service.getSummary();
+        DashboardTodoResponse todos = service.getTodos();
+
+        assertThat(summary.totalLaws()).isEqualTo(1);
+        assertThat(summary.totalArticles()).isEqualTo(2);
+        assertThat(summary.inProgressTasks()).isEqualTo(1);
+        assertThat(summary.pendingReviewTasks()).isEqualTo(1);
+        assertThat(todos.pendingReview()).singleElement().satisfies(item -> {
+            assertThat(item.taskId()).isEqualTo("task-light");
+            assertThat(item.lawName()).isEqualTo("轻量法律");
+            assertThat(item.updatedAt()).isEqualTo(T0.plusSeconds(30));
+        });
+    }
+
+    @Test
+    void todosSortByUpdatedAtInsteadOfCreatedAtForBothCategories() {
+        LawDocument reviewOldCreated = persistLaw("review-old-created");
+        LawDocument reviewNewCreated = persistLaw("review-new-created");
+        LawDocument rereviewOldCreated = persistLaw("rereview-old-created");
+        LawDocument rereviewNewCreated = persistLaw("rereview-new-created");
+        taskRepository.insert(task(
+                "review-old-created-new-updated",
+                reviewOldCreated,
+                TaskType.ORDINARY,
+                TaskState.PENDING_REVIEW,
+                T0,
+                T0.plusSeconds(100)));
+        taskRepository.insert(task(
+                "review-new-created-old-updated",
+                reviewNewCreated,
+                TaskType.ORDINARY,
+                TaskState.PENDING_REVIEW,
+                T0.plusSeconds(50),
+                T0.plusSeconds(60)));
+        taskRepository.insert(task(
+                "rereview-old-created-new-updated",
+                rereviewOldCreated,
+                TaskType.REVISION,
+                TaskState.PENDING_REREVIEW,
+                T0,
+                T0.plusSeconds(100)));
+        taskRepository.insert(task(
+                "rereview-new-created-old-updated",
+                rereviewNewCreated,
+                TaskType.REVISION,
+                TaskState.PENDING_REREVIEW,
+                T0.plusSeconds(50),
+                T0.plusSeconds(60)));
+
+        DashboardTodoResponse todos = service.getTodos();
+
+        assertThat(todos.pendingReview()).extracting(item -> item.taskId())
+                .containsExactly(
+                        "review-old-created-new-updated",
+                        "review-new-created-old-updated");
+        assertThat(todos.pendingRereview()).extracting(item -> item.taskId())
+                .containsExactly(
+                        "rereview-old-created-new-updated",
+                        "rereview-new-created-old-updated");
+        assertThat(todos.pendingReview()).extracting(item -> item.updatedAt())
+                .containsExactly(T0.plusSeconds(100), T0.plusSeconds(60));
+    }
+
+    @Test
+    void todosAreLimitedToTenAndUseTaskIdDescendingForEqualUpdatedAt() {
         for (int index = 0; index < 12; index++) {
             String suffix = String.format("%02d", index);
             ContentVersionDocument reviewVersion = version(
@@ -260,12 +352,29 @@ class DashboardPersistenceIntegrationTests {
         return new ContentVersionDocument(id, lawId, sequence, articles, "admin", T0);
     }
 
+    private static LawDocument persistLaw(String id) {
+        ContentVersionDocument version = version("c-" + id, "law-" + id, 1, 1);
+        contentVersionRepository.insert(version);
+        LawDocument law = law("law-" + id, version.getId(), null, false);
+        return lawRepository.insert(law);
+    }
+
     private static TaskDocument task(
             String taskId,
             LawDocument law,
             TaskType type,
             TaskState state,
             Instant createdAt) {
+        return task(taskId, law, type, state, createdAt, createdAt);
+    }
+
+    private static TaskDocument task(
+            String taskId,
+            LawDocument law,
+            TaskType type,
+            TaskState state,
+            Instant createdAt,
+            Instant updatedAt) {
         return new TaskDocument(
                 taskId,
                 type,
@@ -287,6 +396,6 @@ class DashboardPersistenceIntegrationTests {
                 null,
                 null,
                 createdAt,
-                createdAt);
+                updatedAt);
     }
 }

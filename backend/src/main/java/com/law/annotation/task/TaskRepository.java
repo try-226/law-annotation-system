@@ -4,6 +4,7 @@ import com.law.annotation.common.enums.TaskState;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 
@@ -33,9 +34,15 @@ public interface TaskRepository extends MongoRepository<TaskDocument, String> {
             TaskState state,
             Collection<String> lawIds);
 
-    List<TaskDocument> findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
+    @Query(
+            value = "{ 'taskState': ?0, 'lawId': { $in: ?1 } }",
+            fields = "{ '_id': 1, 'taskName': 1, 'taskType': 1, 'taskState': 1, "
+                    + "'lawId': 1, 'updatedAt': 1 }",
+            sort = "{ 'updatedAt': -1, '_id': -1 }")
+    List<DashboardTodoTaskProjection> findDashboardTodos(
             TaskState state,
-            Collection<String> lawIds);
+            Collection<String> lawIds,
+            Pageable pageable);
 
     boolean existsByAnnotatorIdOrCreatedByOrCanceledBy(
             String annotatorId, String createdBy, String canceledBy);

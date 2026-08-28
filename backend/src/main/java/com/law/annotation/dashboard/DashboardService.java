@@ -7,25 +7,28 @@ import com.law.annotation.dashboard.dto.DashboardTodoItemResponse;
 import com.law.annotation.dashboard.dto.DashboardTodoResponse;
 import com.law.annotation.law.LawDisplayStatus;
 import com.law.annotation.law.LawDisplayStatusResolver;
-import com.law.annotation.law.LawDocument;
+import com.law.annotation.law.LawDashboardProjection;
 import com.law.annotation.law.LawErrorCodes;
 import com.law.annotation.law.LawRepository;
-import com.law.annotation.task.TaskDocument;
+import com.law.annotation.task.DashboardTodoTaskProjection;
 import com.law.annotation.task.TaskRepository;
 import com.law.annotation.task.TaskStateRules;
 import com.law.annotation.task.TaskStatusProjection;
-import com.law.annotation.version.ContentVersionDocument;
+import com.law.annotation.version.ContentVersionArticleCountProjection;
 import com.law.annotation.version.ContentVersionRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DashboardService {
+
+    private static final PageRequest TOP_TEN = PageRequest.of(0, 10);
 
     private final LawRepository lawRepository;
     private final ContentVersionRepository contentVersionRepository;
@@ -44,34 +47,37 @@ public class DashboardService {
     }
 
     public DashboardSummaryResponse getSummary() {
-        List<LawDocument> laws = lawRepository.findAllByDeletedAtIsNull();
+        List<LawDashboardProjection> laws = lawRepository.findDashboardLaws();
         if (laws.isEmpty()) {
             return new DashboardSummaryResponse(0, 0, 0, 0, 0, 0, 0, 0);
         }
 
-        List<String> lawIds = laws.stream().map(LawDocument::getId).toList();
+        List<String> lawIds = laws.stream().map(LawDashboardProjection::getId).toList();
         Map<String, TaskStatusProjection> activeTasksByLawId = indexActiveTasks(
                 taskRepository.findStatusesByLawIdInAndTaskStateIn(
                         lawIds,
                         TaskStateRules.unfinishedStates()));
-        Map<String, ContentVersionDocument> currentVersionsById = contentVersionRepository
-                .findByIdIn(laws.stream()
-                        .map(LawDocument::getCurrentContentVersionId)
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(ContentVersionDocument::getId, Function.identity()));
+        Map<String, ContentVersionArticleCountProjection> currentVersionsById =
+                contentVersionRepository
+                        .findArticleCountsByIdIn(laws.stream()
+                                .map(LawDashboardProjection::getCurrentContentVersionId)
+                                .toList())
+                        .stream()
+                        .collect(Collectors.toMap(
+                                ContentVersionArticleCountProjection::getId,
+                                Function.identity()));
 
         long totalArticles = 0;
         long unannotatedLaws = 0;
         long pendingRevisionLaws = 0;
         long completedLaws = 0;
-        for (LawDocument law : laws) {
-            ContentVersionDocument currentVersion = currentVersionsById.get(
+        for (LawDashboardProjection law : laws) {
+            ContentVersionArticleCountProjection currentVersion = currentVersionsById.get(
                     law.getCurrentContentVersionId());
             if (currentVersion == null || !law.getId().equals(currentVersion.getLawId())) {
                 throw versionInconsistent();
             }
-            totalArticles += currentVersion.getSemanticArticlesSnapshot().size();
+            totalArticles += currentVersion.getArticleCount();
 
             LawDisplayStatus displayStatus = displayStatusResolver.resolve(
                     law,
@@ -104,24 +110,26 @@ public class DashboardService {
     }
 
     public DashboardTodoResponse getTodos() {
-        List<LawDocument> laws = lawRepository.findAllByDeletedAtIsNull();
+        List<LawDashboardProjection> laws = lawRepository.findDashboardLaws();
         if (laws.isEmpty()) {
             return new DashboardTodoResponse(List.of(), List.of());
         }
 
-        Map<String, LawDocument> lawsById = laws.stream()
-                .collect(Collectors.toMap(LawDocument::getId, Function.identity()));
-        List<String> lawIds = laws.stream().map(LawDocument::getId).toList();
+        Map<String, LawDashboardProjection> lawsById = laws.stream()
+                .collect(Collectors.toMap(LawDashboardProjection::getId, Function.identity()));
+        List<String> lawIds = laws.stream().map(LawDashboardProjection::getId).toList();
         return new DashboardTodoResponse(
                 toTodoItems(
-                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
+                        taskRepository.findDashboardTodos(
                                 TaskState.PENDING_REVIEW,
-                                lawIds),
+                                lawIds,
+                                TOP_TEN),
                         lawsById),
                 toTodoItems(
-                        taskRepository.findTop10ByTaskStateAndLawIdInOrderByCreatedAtDescTaskIdDesc(
+                        taskRepository.findDashboardTodos(
                                 TaskState.PENDING_REREVIEW,
-                                lawIds),
+                                lawIds,
+                                TOP_TEN),
                         lawsById));
     }
 
@@ -133,8 +141,8 @@ public class DashboardService {
     }
 
     private static List<DashboardTodoItemResponse> toTodoItems(
-            List<TaskDocument> tasks,
-            Map<String, LawDocument> lawsById) {
+            List<DashboardTodoTaskProjection> tasks,
+            Map<String, LawDashboardProjection> lawsById) {
         return tasks.stream()
                 .filter(task -> lawsById.containsKey(task.getLawId()))
                 .map(task -> new DashboardTodoItemResponse(
@@ -144,7 +152,7 @@ public class DashboardService {
                         task.getLawId(),
                         lawsById.get(task.getLawId()).getName(),
                         task.getTaskState(),
-                        task.getCreatedAt()))
+                        task.getUpdatedAt()))
                 .toList();
     }
 

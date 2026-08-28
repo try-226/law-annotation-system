@@ -19,6 +19,7 @@ public class TaskIndexInitializer implements ApplicationRunner {
     public static final String ACTIVE_LAW_INDEX = "uk_tasks_active_law";
     public static final String CREATED_AT_INDEX = "idx_tasks_created_at";
     public static final String ANNOTATOR_STATE_INDEX = "idx_tasks_annotator_state";
+    public static final String DASHBOARD_TODO_INDEX = "idx_tasks_dashboard_todo";
 
     private final MongoTemplate mongoTemplate;
 
@@ -50,6 +51,13 @@ public class TaskIndexInitializer implements ApplicationRunner {
                         .on("annotatorId", Sort.Direction.ASC)
                         .on("taskState", Sort.Direction.ASC)
                         .named(ANNOTATOR_STATE_INDEX));
+        indexOperations.createIndex(
+                new Index()
+                        .on("taskState", Sort.Direction.ASC)
+                        .on("updatedAt", Sort.Direction.DESC)
+                        .on("taskId", Sort.Direction.DESC)
+                        .on("lawId", Sort.Direction.ASC)
+                        .named(DASHBOARD_TODO_INDEX));
     }
 
     private static boolean matchesRequiredActiveLawIndex(IndexInfo index) {

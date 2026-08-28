@@ -11,5 +11,5 @@ public record DashboardTodoItemResponse(
         String lawId,
         String lawName,
         TaskState taskState,
-        Instant createdAt) {
+        Instant updatedAt) {
 }
