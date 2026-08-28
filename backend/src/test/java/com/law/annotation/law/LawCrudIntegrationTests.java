@@ -244,8 +244,24 @@ class LawCrudIntegrationTests {
 
         assertThat(detail.currentContentVersionId()).isEqualTo("content-law-1");
         assertThat(detail.currentContentVersionSeq()).isEqualTo(1);
+        assertThat(detail.currentAnnotationVersionId()).isNull();
         assertThat(detail.articles()).hasSize(2);
         assertThat(detail.displayStatus()).isEqualTo(LawDisplayStatus.UNANNOTATED);
+
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is("law-1")),
+                new Update().set("currentAnnotationVersionId", "annotation-1"),
+                LawDocument.class);
+        assertThat(queryService.getDetail("law-1").currentAnnotationVersionId())
+                .isEqualTo("annotation-1");
+
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is("law-1")),
+                new Update().set("currentAnnotationVersionId", "annotation-2"),
+                LawDocument.class);
+        assertThat(queryService.getDetail("law-1").currentAnnotationVersionId())
+                .isEqualTo("annotation-2");
+
         assertThatThrownBy(() -> queryService.getDetail("missing"))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")

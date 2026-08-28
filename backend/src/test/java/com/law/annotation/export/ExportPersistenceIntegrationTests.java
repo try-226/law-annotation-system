@@ -154,7 +154,7 @@ class ExportPersistenceIntegrationTests {
                 .isEqualTo("正式备注");
 
         contentVersionRepository.insert(version("content-2", 2, "C2正文"));
-        lawRepository.save(law("content-2", true, "annotation-1"));
+        lawRepository.save(law("content-2", false, "annotation-1"));
         assertThatThrownBy(() -> service.export(
                         "law-1",
                         new LawExportRequest(

@@ -18,6 +18,7 @@ public record LawDetailResponse(
         List<Article> articles,
         String currentContentVersionId,
         int currentContentVersionSeq,
+        String currentAnnotationVersionId,
         boolean pendingRevision,
         Instant createdAt,
         Instant updatedAt) {

@@ -450,7 +450,7 @@ class ExportServiceTests {
     }
 
     @Test
-    void formalPairingUsesFactsInsteadOfPendingRevisionFlag() throws Exception {
+    void formalExportRejectsPendingRevisionEvenWhenPairingMatches() {
         LawDocument semanticPending = law("content-2", true, false, "annotation-1");
         givenCurrentFormalLaw(
                 semanticPending,
@@ -463,7 +463,7 @@ class ExportServiceTests {
                                 LawExportRequest.Scope.WHOLE,
                                 List.of(),
                                 LawExportRequest.Format.JSON)),
-                ExportErrorCodes.VERSION_MISMATCH);
+                ExportErrorCodes.FORMAL_UNAVAILABLE);
 
         LawDocument annotationOnlyRevision = law(
                 "content-1", true, false, "annotation-1");
@@ -471,16 +471,14 @@ class ExportServiceTests {
                 annotationOnlyRevision,
                 version("content-1", 1, articles()),
                 annotation("annotation-1", "law-1", "content-1", articleResults()));
-        JsonNode annotationOnlyJson = objectMapper.readTree(service.export(
-                "law-1",
-                formalRequest(
-                        LawExportRequest.Scope.WHOLE,
-                        List.of(),
-                        LawExportRequest.Format.JSON)).content());
-        assertThat(annotationOnlyJson.path("law").path("name").asText())
-                .isEqualTo("当前法律名称");
-        assertThat(annotationOnlyJson.path("structure").get(0).path("title").asText())
-                .isEqualTo("当前第一章");
+        assertExportError(
+                () -> service.export(
+                        "law-1",
+                        formalRequest(
+                                LawExportRequest.Scope.WHOLE,
+                                List.of(),
+                                LawExportRequest.Format.JSON)),
+                ExportErrorCodes.FORMAL_UNAVAILABLE);
     }
 
     private static Stream<Arguments> invalidSelections() {

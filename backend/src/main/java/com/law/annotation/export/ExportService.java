@@ -90,6 +90,12 @@ public class ExportService {
             };
         }
 
+        if (law.isPendingRevision()) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    ExportErrorCodes.FORMAL_UNAVAILABLE,
+                    "当前法律存在待修订的正文变更，暂不可导出正式标注结果");
+        }
         AnnotationVersionDocument annotation = requireCurrentAnnotation(law, version);
         validateFormalConsistency(version, annotation);
         FormalLawExport export = buildFormalExport(
