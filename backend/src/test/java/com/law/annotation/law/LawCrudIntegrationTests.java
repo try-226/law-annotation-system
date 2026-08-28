@@ -443,7 +443,6 @@ class LawCrudIntegrationTests {
         assertThat(contentVersionRepository.findByLawIdOrderBySeqAsc(lawId)).hasSize(1);
         assertThat(updated.currentContentVersionId()).isEqualTo(creation.contentVersion().getId());
         assertThat(updated.currentContentVersionSeq()).isEqualTo(1);
-        assertThat(updated.currentAnnotationVersionId()).isEqualTo("annotation-1");
         assertThat(stored.getCurrentContentVersionId()).isEqualTo(creation.contentVersion().getId());
         assertThat(updated.pendingRevision()).isFalse();
         assertThat(stored.isPendingRevision()).isFalse();

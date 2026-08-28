@@ -19,7 +19,9 @@ const props = defineProps<{
   open: boolean
   law: LawDetail
   selectedArticleIds: string[]
+  currentAnnotationVersionId: string | null
   annotation: AnnotationVersionHistory | null
+  formalLoadError: string
 }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -28,7 +30,12 @@ const type = ref<ExportType>('PLAIN')
 const format = ref<ExportFormat>('CSV')
 const busy = ref(false)
 const error = ref('')
-const availability = computed(() => formalAvailability(props.law, props.annotation))
+const availability = computed(() => formalAvailability(
+  props.law,
+  props.currentAnnotationVersionId,
+  props.annotation,
+  Boolean(props.formalLoadError),
+))
 
 watch(() => props.open, (open) => {
   if (!open) return

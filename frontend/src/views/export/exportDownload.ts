@@ -1,4 +1,4 @@
-import type { AnnotationVersionHistory } from '../../types/history'
+import type { AnnotationVersionHistory, LawHistory } from '../../types/history'
 import type { LawDetail } from '../../types/law'
 import type { ExportFormat, ExportScope, ExportType, LawExportRequest } from '../../types/export'
 
@@ -7,6 +7,15 @@ export class ExportSelectionError extends Error {}
 export interface FormalAvailability {
   available: boolean
   message: string
+}
+
+export function latestApprovedAnnotationVersionId(history: Pick<LawHistory, 'timeline'>): string | null {
+  const current = history.timeline.find((item) => (
+    item.type === 'ANNOTATION_VERSION_APPROVED'
+    && item.detailRef.type === 'ANNOTATION_VERSION'
+    && item.detailRef.resourceId.trim().length > 0
+  ))
+  return current?.detailRef.resourceId ?? null
 }
 
 export function buildLawExportRequest(
@@ -27,16 +36,27 @@ export function buildLawExportRequest(
 }
 
 export function formalAvailability(
-  law: Pick<LawDetail, 'id' | 'currentAnnotationVersionId' | 'currentContentVersionId' | 'pendingRevision'>,
+  law: Pick<LawDetail, 'id' | 'currentContentVersionId' | 'pendingRevision'>,
+  currentAnnotationVersionId: string | null,
   annotation: AnnotationVersionHistory | null,
+  loadFailed = false,
 ): FormalAvailability {
-  if (!law.currentAnnotationVersionId) {
+  if (law.pendingRevision) {
+    return {
+      available: false,
+      message: '当前法律存在待修订的正文变更，正式标注结果暂不可按当前正文导出，请完成修订后重试。',
+    }
+  }
+  if (loadFailed) {
+    return { available: false, message: '当前正式标注结果尚未成功加载，请稍后重试。' }
+  }
+  if (!currentAnnotationVersionId) {
     return { available: false, message: '该法律尚无正式标注结果，可先导出纯法律正文。' }
   }
   if (
     !annotation
     || annotation.lawId !== law.id
-    || annotation.annotationVersionId !== law.currentAnnotationVersionId
+    || annotation.annotationVersionId !== currentAnnotationVersionId
   ) {
     return { available: false, message: '当前正式标注结果尚未成功加载，请稍后重试。' }
   }
@@ -48,9 +68,7 @@ export function formalAvailability(
   }
   return {
     available: true,
-    message: law.pendingRevision
-      ? '当前正式 A 与语义 C 仍匹配，可继续导出；最终安全校验由后端执行。'
-      : '当前正式 A 与语义 C 配对有效。',
+    message: '当前正式 A 与语义 C 配对有效。',
   }
 }
 

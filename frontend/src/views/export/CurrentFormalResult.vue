@@ -8,6 +8,7 @@ import { formalAvailability } from './exportDownload'
 
 const props = defineProps<{
   law: LawDetail
+  currentAnnotationVersionId: string | null
   annotation: AnnotationVersionHistory | null
   articles: LawArticle[]
   loading: boolean
@@ -15,7 +16,12 @@ const props = defineProps<{
   focusedArticleId: string
 }>()
 
-const availability = computed(() => formalAvailability(props.law, props.annotation))
+const availability = computed(() => formalAvailability(
+  props.law,
+  props.currentAnnotationVersionId,
+  props.annotation,
+  Boolean(props.error),
+))
 const articleValues = computed(() => new Map(
   (props.annotation?.articleResults ?? []).map((item) => [item.articleId, item.values]),
 ))

@@ -57,7 +57,6 @@ final class LawResponseMapper {
                         .toList(),
                 version.getId(),
                 version.getSeq(),
-                law.getCurrentAnnotationVersionId(),
                 law.isPendingRevision(),
                 law.getCreatedAt(),
                 law.getUpdatedAt());
