@@ -25,7 +25,7 @@ class TaskIndexInitializerTests {
 
         new TaskIndexInitializer(mongoTemplate).run(new DefaultApplicationArguments());
 
-        org.mockito.Mockito.verify(indexOperations, org.mockito.Mockito.times(3))
+        org.mockito.Mockito.verify(indexOperations, org.mockito.Mockito.times(4))
                 .createIndex(captor.capture());
         List<IndexDefinition> indexes = captor.getAllValues();
         IndexDefinition activeLaw = indexes.stream()
@@ -44,6 +44,16 @@ class TaskIndexInitializerTests {
                                 "PENDING_REVIEW",
                                 "PARTIALLY_REJECTED",
                                 "PENDING_REREVIEW"))));
+        IndexDefinition dashboardTodo = indexes.stream()
+                .filter(index -> TaskIndexInitializer.DASHBOARD_TODO_INDEX.equals(
+                        index.getIndexOptions().getString("name")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(dashboardTodo.getIndexKeys()).isEqualTo(new Document()
+                .append("taskState", 1)
+                .append("updatedAt", -1)
+                .append("taskId", -1)
+                .append("lawId", 1));
     }
 
     @Test
