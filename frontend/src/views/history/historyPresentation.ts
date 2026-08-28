@@ -6,12 +6,20 @@ import { VALIDITY_STATUS_LABELS } from '../../types/law'
 import type { TaskArticleSnapshot } from '../../types/task'
 import type {
   AnnotationVersionArticleResult,
+  HistoryDetailType,
   HistoryDetailRef,
   HistoryTimelineItem,
 } from '../../types/history'
 
 export interface AnnotationArticleRow extends TaskArticleSnapshot {
   values: AnnotationVersionArticleResult['values']
+}
+
+export function taskHistoryRoute(lawId: string, taskId: string): RouteLocationRaw {
+  return {
+    name: 'task-history',
+    params: { lawId, taskId },
+  }
 }
 
 export function historyDetailRoute(lawId: string, detailRef: HistoryDetailRef): RouteLocationRaw | null {
@@ -86,6 +94,33 @@ export function taskHistoryBackRoute(
 
 export function isLawHistoryReturnContext(role: Role | undefined, from: unknown): boolean {
   return role === 'ADMIN' && from === 'law-history'
+}
+
+export interface HistoryBackNavigationInput {
+  kind: HistoryDetailType | null
+  role: Role | undefined
+  lawId: string
+  taskId: string
+  from: unknown
+  loadError: boolean
+}
+
+export function historyBackNavigation(input: HistoryBackNavigationInput): {
+  route: RouteLocationRaw
+  label: string
+} {
+  if (input.kind !== 'TASK') {
+    return {
+      route: { name: 'law-history', params: { lawId: input.lawId } },
+      label: '历史记录',
+    }
+  }
+
+  const returnsToLawHistory = isLawHistoryReturnContext(input.role, input.from)
+  return {
+    route: taskHistoryBackRoute(input.role, input.lawId, input.taskId, input.from),
+    label: returnsToLawHistory ? '法律历史' : '任务详情',
+  }
 }
 
 export function annotationArticleRows(

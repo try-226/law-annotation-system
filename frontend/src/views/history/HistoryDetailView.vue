@@ -21,7 +21,7 @@ import AnnotationVersionHistoryPanel from './AnnotationVersionHistoryPanel.vue'
 import ContentVersionHistoryPanel from './ContentVersionHistoryPanel.vue'
 import LawAuditHistoryPanel from './LawAuditHistoryPanel.vue'
 import TaskHistoryPanel from './TaskHistoryPanel.vue'
-import { isLawHistoryReturnContext, taskHistoryBackRoute } from './historyPresentation'
+import { historyBackNavigation } from './historyPresentation'
 
 type DetailKind = 'CONTENT_VERSION' | 'ANNOTATION_VERSION' | 'LAW_AUDIT' | 'TASK'
 
@@ -44,23 +44,16 @@ const retryable = ref(false)
 let requestSequence = 0
 
 const taskId = computed(() => String(route.params.taskId ?? ''))
-const returnsToLawHistory = computed(() => kind.value === 'TASK'
-  && isLawHistoryReturnContext(authState.user?.role, route.query.from))
-const backRoute = computed(() => {
-  if (kind.value !== 'TASK') return { name: 'law-history', params: { lawId: lawId.value } }
-  if (returnsToLawHistory.value) {
-    return taskHistoryBackRoute(authState.user?.role, lawId.value, taskId.value, route.query.from)
-  }
-  if (loadError.value) return { name: authState.user?.role === 'ADMIN' ? 'admin-tasks' : 'my-tasks' }
-  return taskHistoryBackRoute(authState.user?.role, lawId.value, taskId.value, route.query.from)
-})
-const backLabel = computed(() => kind.value === 'TASK'
-  ? (returnsToLawHistory.value
-      ? '法律历史'
-      : loadError.value
-        ? (authState.user?.role === 'ADMIN' ? '任务管理' : '我的任务')
-        : '任务详情')
-  : '历史记录')
+const backNavigation = computed(() => historyBackNavigation({
+  kind: kind.value,
+  role: authState.user?.role,
+  lawId: lawId.value,
+  taskId: taskId.value,
+  from: route.query.from,
+  loadError: Boolean(loadError.value),
+}))
+const backRoute = computed(() => backNavigation.value.route)
+const backLabel = computed(() => backNavigation.value.label)
 
 function resetDetail(): void {
   content.value = null

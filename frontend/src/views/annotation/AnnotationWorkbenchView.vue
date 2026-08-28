@@ -24,6 +24,7 @@ import type {
 import type { TaskArticleSnapshot, TaskDetail } from '../../types/task'
 import { workbenchTitle } from '../../types/task'
 import { parseFailure, safeErrorMessage } from '../../utils/errors'
+import { taskHistoryRoute } from '../history/historyPresentation'
 import TaskStatusBadge from '../task/TaskStatusBadge.vue'
 import AnnotationStructureTree from './AnnotationStructureTree.vue'
 import ArticleAnnotationPanel from './ArticleAnnotationPanel.vue'
@@ -597,7 +598,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
     <template v-else-if="task && draft">
       <header class="annotation-page-heading">
         <div><small class="annotation-workbench-kind">{{ workbenchTitle(task.taskType) }}</small><h1>{{ task.taskName }}</h1><p>{{ task.lawBaseInfoSnapshot.name }} · {{ task.contentVersionSnapshot.articles.length }} 条法条</p></div>
-        <TaskStatusBadge :state="task.taskState" />
+        <div class="annotation-heading-actions">
+          <TaskStatusBadge :state="task.taskState" />
+          <RouterLink class="button" :to="taskHistoryRoute(task.lawId, task.taskId)">查看任务历史</RouterLink>
+        </div>
       </header>
 
       <section v-if="task.taskState === 'PENDING_ANNOTATION'" class="panel annotation-pending">

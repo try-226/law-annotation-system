@@ -1,6 +1,7 @@
 .annotation-page { min-width: 0; }
 .annotation-back { display: inline-flex; margin-bottom: 14px; color: #2868c7; font-size: 13px; }
 .annotation-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.annotation-heading-actions { display: grid; justify-items: end; gap: 10px; }
 .annotation-page-heading h1 { margin: 0; font-size: 24px; }.annotation-page-heading p { margin: 7px 0 0; color: #748092; font-size: 13px; }
 .annotation-workbench-kind { display: inline-block; margin-bottom: 6px; color: #2868c7; font-size: 12px; font-weight: 650; }
 .annotation-task-state { border-radius: 16px; background: #eaf2fd; color: #2868c7; padding: 6px 12px; font-size: 12px; }
@@ -50,4 +51,4 @@
 .annotation-submit-warning { display: grid; gap: 6px; border-radius: 6px; background: #fff0f0; color: #a63c3c; padding: 14px 16px; }.annotation-submit-warning span { color: #657083; font-size: 12px; }
 .annotation-locator-list { display: grid; overflow: hidden; border: 1px solid #e0e5ec; border-radius: 6px; }.annotation-locator-list button { display: flex; justify-content: space-between; gap: 16px; border: 0; border-bottom: 1px solid #edf0f4; background: #fff; color: #384456; padding: 13px 15px; text-align: left; cursor: pointer; }.annotation-locator-list button:last-child { border-bottom: 0; }.annotation-locator-list button:hover { background: #f7f9fc; }.annotation-locator-list strong { color: #2868c7; white-space: nowrap; }
 @media (max-width: 1100px) { .annotation-workbench { grid-template-columns: 1fr; }.annotation-sidebar { position: static; max-height: 520px; min-height: 440px; }.annotation-panel-content { padding: 22px 20px 8px; }.annotation-actions { flex-wrap: wrap; padding: 16px 20px; }.annotation-actions-spacer { flex-basis: 100%; height: 0; } }
-@media (max-width: 820px) { .annotation-form-grid, .annotation-law-meta { grid-template-columns: 1fr; }.annotation-form-wide { grid-column: auto; }.annotation-page-heading, .annotation-pending { align-items: stretch; flex-direction: column; }.annotation-actions .button { flex: 1; }.annotation-review-issues button { grid-template-columns: 1fr; gap: 5px; } }
+@media (max-width: 820px) { .annotation-form-grid, .annotation-law-meta { grid-template-columns: 1fr; }.annotation-form-wide { grid-column: auto; }.annotation-page-heading, .annotation-pending { align-items: stretch; flex-direction: column; }.annotation-heading-actions { justify-items: start; }.annotation-actions .button { flex: 1; }.annotation-review-issues button { grid-template-columns: 1fr; gap: 5px; } }

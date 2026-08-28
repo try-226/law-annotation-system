@@ -4,10 +4,12 @@ import test from 'node:test'
 import {
   annotationArticleRows,
   formatAuditValue,
+  historyBackNavigation,
   historyFieldLabel,
   historyDetailRoute,
   lawAuditTypeLabel,
   paginateTimeline,
+  taskHistoryRoute,
   taskHistoryBackRoute,
   historyTimelineRows,
   validityStatusLabel,
@@ -32,6 +34,13 @@ test('历史详情导航使用 named route 和未编码 params', () => {
     query: { from: 'law-history' },
   })
   assert.equal(historyDetailRoute('law/一', { type: 'UNKNOWN', resourceId: 'unknown/1' }), null)
+})
+
+test('工作台任务历史入口使用 named route 和未编码 params', () => {
+  assert.deepEqual(taskHistoryRoute('law/一', 'task/一'), {
+    name: 'task-history',
+    params: { lawId: 'law/一', taskId: 'task/一' },
+  })
 })
 
 test('法律时间线仅附加详情路由并保持服务端原始顺序', () => {
@@ -123,6 +132,65 @@ test('任务历史返回入口只允许管理员使用法律历史来源', () =>
   assert.deepEqual(taskHistoryBackRoute('ANNOTATOR', 'law-1', 'task-1', 'law-history'), {
     name: 'my-task-detail',
     params: { taskId: 'task-1' },
+  })
+})
+
+test('任务历史返回入口不因加载错误改为任务列表', () => {
+  const base = { kind: 'TASK', lawId: 'law-1', taskId: 'task-1' }
+
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ADMIN',
+    from: 'law-history',
+    loadError: false,
+  }), {
+    route: { name: 'law-history', params: { lawId: 'law-1' } },
+    label: '法律历史',
+  })
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ADMIN',
+    from: undefined,
+    loadError: false,
+  }), {
+    route: { name: 'admin-task-detail', params: { taskId: 'task-1' } },
+    label: '任务详情',
+  })
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ADMIN',
+    from: undefined,
+    loadError: true,
+  }), {
+    route: { name: 'admin-task-detail', params: { taskId: 'task-1' } },
+    label: '任务详情',
+  })
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ANNOTATOR',
+    from: undefined,
+    loadError: false,
+  }), {
+    route: { name: 'my-task-detail', params: { taskId: 'task-1' } },
+    label: '任务详情',
+  })
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ANNOTATOR',
+    from: 'law-history',
+    loadError: false,
+  }), {
+    route: { name: 'my-task-detail', params: { taskId: 'task-1' } },
+    label: '任务详情',
+  })
+  assert.deepEqual(historyBackNavigation({
+    ...base,
+    role: 'ANNOTATOR',
+    from: 'law-history',
+    loadError: true,
+  }), {
+    route: { name: 'my-task-detail', params: { taskId: 'task-1' } },
+    label: '任务详情',
   })
 })
 
