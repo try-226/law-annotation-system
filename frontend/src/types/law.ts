@@ -96,6 +96,7 @@ export interface LawDetail {
   articles: LawArticle[]
   currentContentVersionId: string
   currentContentVersionSeq: number
+  currentAnnotationVersionId: string | null
   pendingRevision: boolean
   createdAt: string
   updatedAt: string

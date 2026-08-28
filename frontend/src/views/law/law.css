@@ -46,7 +46,11 @@ th { color: #64748b; font-size: 13px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; }
 .row-card { margin-top: 12px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.law-article-card { scroll-margin-top: 92px; }
 .row-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.article-export-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.article-export-checkbox input { width: auto; margin: 0; accent-color: #1d4f91; }
+.article-export-checkbox span { color: #7a8495; font-size: 12px; font-weight: 400; }
 .row-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .full { grid-column: 1 / -1; }
 .section-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }

@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
   addLawArticle, apiErrorMessage, deleteLaw, deleteLawArticle, getLaw,
   updateLawArticle, updateLawBase, updateLawStructure,
 } from '../../api/laws'
+import { getAnnotationVersionHistory } from '../../api/history'
+import type { AnnotationVersionHistory } from '../../types/history'
 import type { LawArticle, LawBaseInfo, LawDetail, LawDisplayStatus, LawStructureInput, StructureNodeType, ValidityStatus } from '../../types/law'
+import CurrentFormalResult from '../export/CurrentFormalResult.vue'
+import LawExportModal from '../export/LawExportModal.vue'
 import {
   createLawDetailDraftState,
   mergeLawDetailDraftState,
@@ -30,6 +34,12 @@ const loading = ref(false)
 const saving = ref('')
 const error = ref('')
 const message = ref('')
+const formalResult = ref<AnnotationVersionHistory | null>(null)
+const formalLoading = ref(false)
+const formalError = ref('')
+const selectedArticleIds = ref<string[]>([])
+const exportOpen = ref(false)
+const focusedArticleId = ref('')
 const baseValidationIssues = ref<string[]>([])
 const structureValidationIssues = ref<string[]>([])
 const articleValidationIssues = ref<Record<string, string[]>>({})
@@ -38,6 +48,7 @@ let manualNodeIndex = 0
 let draftState: LawDetailDraftState | null = null
 let viewGeneration = 0
 let loadSequence = 0
+let formalSequence = 0
 
 const base = reactive<LawBaseInfo>({ name: '', issuingAuthority: '', publicationDate: '', validityStatus: 'ACTIVE' })
 const newArticle = reactive({ number: '', body: '', order: 0 })
@@ -46,6 +57,9 @@ const lockedStatuses = new Set<LawDisplayStatus>([
 ])
 const maintenanceLocked = computed(() => Boolean(detail.value && lockedStatuses.has(detail.value.displayStatus)))
 const maintenanceBusy = computed(() => maintenanceLocked.value || Boolean(saving.value))
+const allArticlesSelected = computed(() => (
+  articles.value.length > 0 && articles.value.every((article) => selectedArticleIds.value.includes(article.articleId))
+))
 const lockReason = '该法律存在进行中任务，暂不可维护'
 const busyReason = '法律维护请求正在处理中，请稍候'
 const displayLabels: Record<LawDisplayStatus, string> = {
@@ -81,6 +95,12 @@ function resetPageState() {
   saving.value = ''
   error.value = ''
   message.value = ''
+  formalResult.value = null
+  formalLoading.value = false
+  formalError.value = ''
+  selectedArticleIds.value = []
+  exportOpen.value = false
+  focusedArticleId.value = ''
   baseValidationIssues.value = []
   structureValidationIssues.value = []
   articleValidationIssues.value = {}
@@ -109,11 +129,56 @@ function currentDraftState(): LawDetailDraftState {
 
 function syncInitial(value: LawDetail) {
   applyDraftState(createLawDetailDraftState(value))
+  selectedArticleIds.value = []
   Object.assign(newArticle, { number: '', body: '', order: nextArticleOrder(articles.value) })
 }
 
 function syncMutation(value: LawDetail, saved: SavedLawRegion) {
   applyDraftState(mergeLawDetailDraftState(currentDraftState(), value, saved))
+  const currentIds = new Set(value.articles.map((article) => article.articleId))
+  selectedArticleIds.value = selectedArticleIds.value.filter((articleId) => currentIds.has(articleId))
+}
+
+async function loadFormalResult(value: LawDetail, targetLawId: string, generation: number): Promise<void> {
+  const currentRequest = ++formalSequence
+  formalResult.value = null
+  formalError.value = ''
+  if (!value.currentAnnotationVersionId) {
+    formalLoading.value = false
+    return
+  }
+  formalLoading.value = true
+  try {
+    const annotation = await getAnnotationVersionHistory(
+      targetLawId,
+      value.currentAnnotationVersionId,
+    )
+    if (isCurrentView(targetLawId, generation) && currentRequest === formalSequence) {
+      formalResult.value = annotation
+    }
+  } catch (caught: unknown) {
+    if (isCurrentView(targetLawId, generation) && currentRequest === formalSequence) {
+      formalError.value = apiErrorMessage(caught, '当前正式结果加载失败，请稍后重试')
+    }
+  } finally {
+    if (isCurrentView(targetLawId, generation) && currentRequest === formalSequence) {
+      formalLoading.value = false
+    }
+  }
+}
+
+async function focusRouteLocator(): Promise<void> {
+  await nextTick()
+  const articleId = typeof route.query.articleId === 'string' ? route.query.articleId : ''
+  const section = route.query.section === 'formal' ? 'formal' : 'law'
+  focusedArticleId.value = articleId && articles.value.some((article) => article.articleId === articleId)
+    ? articleId
+    : ''
+  const targetId = section === 'formal'
+    ? (focusedArticleId.value ? `formal-article-${focusedArticleId.value}` : 'formal-results')
+    : (focusedArticleId.value ? `law-article-${focusedArticleId.value}` : '')
+  if (!targetId) return
+  document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 async function load(targetLawId: string, generation: number) {
@@ -128,6 +193,7 @@ async function load(targetLawId: string, generation: number) {
       return
     }
     syncInitial(value)
+    await loadFormalResult(value, targetLawId, generation)
   } catch (caught) {
     if (isCurrentView(targetLawId, generation) && currentRequest === loadSequence) {
       error.value = apiErrorMessage(caught)
@@ -135,6 +201,7 @@ async function load(targetLawId: string, generation: number) {
   } finally {
     if (isCurrentView(targetLawId, generation) && currentRequest === loadSequence) {
       loading.value = false
+      void focusRouteLocator()
     }
   }
 }
@@ -158,6 +225,9 @@ async function run(
       return false
     }
     syncMutation(value, saved)
+    if ((formalResult.value?.annotationVersionId ?? null) !== value.currentAnnotationVersionId) {
+      await loadFormalResult(value, targetLawId, generation)
+    }
     message.value = '保存成功'
     return true
   } catch (caught) {
@@ -217,6 +287,17 @@ function removeStructureNode(nodeId: string) {
   if (rejectMaintenanceMutation()) return
   structures.value = structures.value.filter((node) => node.nodeId !== nodeId)
   structures.value.forEach((node) => { if (node.parentNodeId === nodeId) node.parentNodeId = null })
+}
+
+function toggleAllArticles(): void {
+  selectedArticleIds.value = allArticlesSelected.value
+    ? []
+    : articles.value.map((article) => article.articleId)
+}
+
+function openExport(): void {
+  if (!detail.value || loading.value) return
+  exportOpen.value = true
 }
 
 async function createArticle() {
@@ -280,6 +361,7 @@ const structureTypes: Array<{ value: StructureNodeType; label: string }> = [
 watch(lawId, (targetLawId) => {
   const generation = ++viewGeneration
   ++loadSequence
+  ++formalSequence
   resetPageState()
   if (!targetLawId) {
     error.value = '法律 ID 无效'
@@ -287,13 +369,18 @@ watch(lawId, (targetLawId) => {
   }
   void load(targetLawId, generation)
 }, { immediate: true })
+
+watch(
+  () => [route.query.articleId, route.query.section],
+  () => { if (detail.value) void focusRouteLocator() },
+)
 </script>
 
 <template>
   <section class="law-page">
     <div class="page-title">
       <div><h1>{{ detail?.name || '法律详情' }}</h1><p class="muted">基础信息与当前内容版本维护</p></div>
-      <div class="actions"><RouterLink class="button secondary" :to="{ name: 'law-history', params: { lawId } }">查看历史</RouterLink><RouterLink class="button secondary" to="/laws">返回列表</RouterLink><button class="danger" :disabled="loading || !detail || maintenanceBusy" :title="maintenanceLocked ? lockReason : saving ? busyReason : loading ? '法律详情正在加载' : !detail ? '法律详情尚未加载' : undefined" @click="removeLaw">删除法律</button></div>
+      <div class="actions"><button :disabled="loading || !detail" @click="openExport">导出</button><RouterLink class="button secondary" :to="{ name: 'law-history', params: { lawId } }">查看历史</RouterLink><RouterLink class="button secondary" to="/laws">返回列表</RouterLink><button class="danger" :disabled="loading || !detail || maintenanceBusy" :title="maintenanceLocked ? lockReason : saving ? busyReason : loading ? '法律详情正在加载' : !detail ? '法律详情尚未加载' : undefined" @click="removeLaw">删除法律</button></div>
     </div>
     <p v-if="error" class="error">{{ error }}</p><p v-if="message" class="notice success">{{ message }}</p>
     <div v-if="loading" class="card empty">正在加载…</div>
@@ -314,6 +401,15 @@ watch(lawId, (targetLawId) => {
         <div class="section-actions"><button :disabled="maintenanceBusy" @click="saveBase">{{ saving === 'base' ? '保存中…' : '保存基础信息' }}</button></div>
       </div>
 
+      <CurrentFormalResult
+        :law="detail"
+        :annotation="formalResult"
+        :articles="articles"
+        :loading="formalLoading"
+        :error="formalError"
+        :focused-article-id="route.query.section === 'formal' ? focusedArticleId : ''"
+      />
+
       <div class="card">
         <div class="row-head"><div><h2>结构</h2><p class="muted">结构调整仅写审计，不生成内容版本。</p></div><button class="secondary small" :disabled="maintenanceBusy" @click="addStructureNode">新增结构</button></div>
         <p v-if="structures.length === 0" class="muted">当前没有编、章、节结构。</p>
@@ -332,9 +428,9 @@ watch(lawId, (targetLawId) => {
       </div>
 
       <div class="card">
-        <div class="row-head"><div><h2>法条</h2><p class="muted">当前内容版本 C{{ detail.currentContentVersionSeq }}；法条语义变更会追加新版本。</p></div><span class="badge">{{ articles.length }} 条</span></div>
-        <div v-for="article in articles" :key="article.articleId" class="row-card">
-          <div class="row-head"><strong>{{ article.number }}</strong><div class="actions"><button class="small" :disabled="maintenanceBusy" @click="saveArticle(article)">保存</button><button class="danger small" :disabled="maintenanceBusy || articles.length <= 1" :title="articles.length <= 1 ? '法律至少保留一条法条' : undefined" @click="removeArticle(article.articleId)">删除</button></div></div>
+        <div class="row-head"><div><h2>法条</h2><p class="muted">当前内容版本 C{{ detail.currentContentVersionSeq }}；勾选法条可用于部分导出。</p></div><div class="actions"><button class="secondary small" type="button" @click="toggleAllArticles">{{ allArticlesSelected ? '取消全选' : '全选法条' }}</button><span class="badge">已选 {{ selectedArticleIds.length }} / {{ articles.length }} 条</span></div></div>
+        <div v-for="article in articles" :id="`law-article-${article.articleId}`" :key="article.articleId" class="row-card law-article-card" :class="{ 'locator-highlight': route.query.section !== 'formal' && focusedArticleId === article.articleId }">
+          <div class="row-head"><label class="article-export-checkbox"><input v-model="selectedArticleIds" type="checkbox" :value="article.articleId" /><strong>{{ article.number }}</strong><span>选择导出</span></label><div class="actions"><button class="small" :disabled="maintenanceBusy" @click="saveArticle(article)">保存</button><button class="danger small" :disabled="maintenanceBusy || articles.length <= 1" :title="articles.length <= 1 ? '法律至少保留一条法条' : undefined" @click="removeArticle(article.articleId)">删除</button></div></div>
           <div class="row-grid">
             <label class="field"><span>条号</span><input v-model="article.number" :disabled="maintenanceBusy" maxlength="20" /></label>
             <label class="field"><span>顺序</span><input v-model.number="article.order" :disabled="maintenanceBusy" min="0" step="1" type="number" /></label>
@@ -354,6 +450,7 @@ watch(lawId, (targetLawId) => {
         </div>
       </div>
     </template>
+    <LawExportModal v-if="detail" :open="exportOpen" :law="detail" :selected-article-ids="selectedArticleIds" :annotation="formalResult" :formal-load-error="formalError" @close="exportOpen = false" />
   </section>
 </template>
 
