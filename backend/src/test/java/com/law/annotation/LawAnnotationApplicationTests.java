@@ -5,6 +5,7 @@ import com.law.annotation.annotation.TaskSubmissionIndexInitializer;
 import com.law.annotation.annotation.TaskSubmissionRepository;
 import com.law.annotation.annotation.RereviewSubmissionIndexInitializer;
 import com.law.annotation.bootstrap.BootstrapAdminRunner;
+import com.law.annotation.bootstrap.DemoSeedRunner;
 import com.law.annotation.field.FieldConfigIndexInitializer;
 import com.law.annotation.field.FieldConfigRepository;
 import com.law.annotation.history.HistoryIndexInitializer;
@@ -102,6 +103,9 @@ class LawAnnotationApplicationTests {
 
     @MockitoBean
     private BootstrapAdminRunner bootstrapAdminRunner;
+
+    @MockitoBean
+    private DemoSeedRunner demoSeedRunner;
 
     @Test
     void contextLoads() {
